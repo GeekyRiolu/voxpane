@@ -1,0 +1,26 @@
+# voxpane STT daemon — a systemd --user unit (milestone M5).
+#
+# Install:
+#   mkdir -p ~/.config/systemd/user
+#   cp systemd/voxpaned.service ~/.config/systemd/user/
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now voxpaned
+#
+# Not functional until M5 lands; provided so enabling it is a one-liner then.
+
+[Unit]
+Description=voxpane speech-to-text daemon (Whisper model resident in RAM)
+Documentation=https://github.com/GeekyRiolu/voxpane
+After=pipewire.service pipewire-pulse.service
+Wants=pipewire.service
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/voxpane daemon
+Restart=on-failure
+RestartSec=2
+# Model lives in RAM; stay responsive on key-release.
+Nice=-5
+
+[Install]
+WantedBy=default.target

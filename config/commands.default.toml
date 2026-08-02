@@ -1,0 +1,41 @@
+# voxpane — command dictionary.
+#
+# Applied in order: exact-phrase replacements ([text]), then key actions ([keys]),
+# then identifier transforms ([transforms]), then Whisper fixups ([fixups]).
+# Case-insensitive, word-boundary anchored.
+#
+# Copied to ~/.config/voxpane/commands.toml by install.sh; edit that copy.
+
+[text]
+"slash clear"     = "/clear"
+"slash compact"   = "/compact"
+"slash model"     = "/model"
+"slash init"      = "/init"
+"slash review"    = "/review"
+"open paren"      = "("
+"close paren"     = ")"
+"open brace"      = "{"
+"close brace"     = "}"
+"backtick"        = "`"
+"triple backtick" = "```"
+"new line"        = "\n"
+"at file"         = "@"
+
+[keys]
+"escape escape"   = "Escape Escape"
+"scratch that"    = "C-u"
+
+[transforms]
+"camel case"      = "camel"     # "camel case user profile" -> userProfile
+"snake case"      = "snake"
+"kebab case"      = "kebab"
+"pascal case"     = "pascal"
+
+[fixups]                        # common Whisper mishearings
+"get commit"      = "git commit"
+"get push"        = "git push"
+"pseudo"          = "sudo"
+"no JS"           = "Node.js"
+
+# Note: slash commands match at the START of the utterance only, so
+# "the slash clear command is useful" stays literal.

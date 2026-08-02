@@ -1,0 +1,18 @@
+# voxpane push-to-talk — toggle recording on/off.
+# Suggested bind: SUPER + ALT + V
+#
+# `voxpane install-bindings` writes the right form for your Omarchy/Hyprland
+# version and re-applies it idempotently. Omarchy updates can overwrite
+# ~/.config/hypr/bindings.conf (upstream #1802), so this snippet is the tracked
+# source of truth — re-run install-bindings after an update.
+#
+# Binding format varies by version: newer Omarchy builds use bindings.lua with an
+# o.bind(...) helper; older ones bindings.conf with `bindd = ...`.
+# install-bindings detects which exists and matches the surrounding syntax.
+
+# --- Hyprland / Omarchy bindings.conf form ---
+# bindd = MODS, key, description, dispatcher, args
+bindd = SUPER ALT, V, Toggle voxpane dictation, exec, voxpane toggle
+
+# --- Omarchy bindings.lua form (newer builds) ---
+# o.bind("SUPER ALT", "V", "exec, voxpane toggle", { description = "Toggle voxpane dictation" })

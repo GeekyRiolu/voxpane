@@ -1,0 +1,59 @@
+# voxpane — default configuration.
+#
+# This is the canonical default. `install.sh` copies it to
+# ~/.config/voxpane/config.toml, where you edit it. A user config only needs the
+# keys it wants to override; everything else falls back to the values here.
+
+[audio]
+source = "default"
+rate = 16000
+max_seconds = 120
+
+[whisper]
+binary = "whisper-cli"
+model = "~/.local/share/whisper-models/ggml-large-v3-turbo-q5_0.bin"
+language = "en"
+threads = 0
+# Biases the decoder toward your vocabulary. Caps at 224 tokens — voxpane warns
+# past that. `voxpane vocab --from-repo` can extend this per project.
+initial_prompt = """
+Claude Code, tmux, Hyprland, Omarchy, Arch Linux, Wayland, Neovim, git rebase,
+async await, TypeScript, Python, JSON, YAML, npm, uv, Docker, Postgres, API,
+refactor, stdout, stderr, CLI, repo, commit, branch, merge conflict.
+"""
+
+[delivery]
+mode = "tmux"                  # tmux | focus | clipboard
+tmux_target = "claude:0.0"
+auto_submit = false            # never true by default — you press Enter
+
+[behavior]
+strip_filler = true
+trailing_submit_phrase = "send it"   # say this to submit that one utterance
+
+[speak]
+enabled = true
+backends = ["alexa", "bluetooth", "notify"]   # tried in order
+max_chars = 240
+prefix_project = "auto"        # auto | always | never
+
+[speak.gate]
+min_turn_seconds = 25          # short turns stay silent
+require_tool_use = true        # must have edited/run something
+skip_if_question = true        # suppress when the turn ends in a question
+quiet_hours = "23:00-08:00"
+
+[speak.alexa]
+command = "alexa"
+device = "Office Dot"
+mode = "say"                   # say (no chime) | announce (chime)
+
+[speak.bluetooth]
+sink = ""                      # empty = autodetect bluez_output.*
+piper_model = "~/.local/share/piper/en_GB-alba-medium.onnx"
+lead_silence_ms = 800
+
+[summary]
+mode = "hybrid"                # facts | llm | hybrid
+llm_command = "claude -p --model haiku --output-format text"
+llm_timeout_seconds = 8
