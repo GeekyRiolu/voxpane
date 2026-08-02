@@ -17,12 +17,10 @@ from . import __version__, doctor
 # subcommand -> (milestone, what it will do). Keeps the "not yet built" surface
 # honest and points contributors at the right part of the plan.
 _PENDING: dict[str, tuple[str, str]] = {
-    "toggle": ("M2", "flip recording state — bind this to SUPER ALT V"),
     "daemon": ("M5", "run voxpaned with the model resident in RAM"),
     "speak": ("M8", "summarise a turn and speak it on the Echo Dot"),
     "ledger": ("M6", "append to / show / prune the activity ledger"),
     "install-hooks": ("M6", "merge voxpane hooks into ~/.claude/settings.json"),
-    "install-bindings": ("M2", "install the Hyprland keybinding idempotently"),
     "vocab": ("M9", "build an initial_prompt addendum from the current repo"),
 }
 
@@ -40,7 +38,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("start", help="record; then `voxpane stop` transcribes")
     sub.add_parser("stop", help="stop, transcribe, copy transcript to clipboard")
-    sub.add_parser("toggle", help="toggle recording — bind to a key [M2]")
+    sub.add_parser("toggle", help="toggle recording on/off — bind this to a key")
     sub.add_parser("daemon", help="run the resident STT daemon [M5]")
 
     speak = sub.add_parser("speak", help="speak a turn summary [M8]")
@@ -54,7 +52,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     sub.add_parser("install-hooks", help="install Claude Code hooks [M6]")
-    sub.add_parser("install-bindings", help="install the Hyprland keybind [M2]")
+    sub.add_parser("install-bindings", help="install the Hyprland keybind (SUPER ALT V)")
 
     vocab = sub.add_parser("vocab", help="build a repo vocabulary prompt [M9]")
     vocab.add_argument("--from-repo", action="store_true")
@@ -85,63 +83,135 @@ def _log(message: str) -> None:
         pass
 
 
-def _cmd_start() -> int:
-    from . import config, recorder
+def _preview(text: str, max_chars: int = 120) -> str:
+    """A compact one/two-line preview for a notification body."""
+    collapsed = " ".join(text.split())
+    if len(collapsed) > max_chars:
+        collapsed = collapsed[: max_chars - 1].rstrip() + "…"
+    return collapsed
+
+
+def _start_recording(cfg) -> int:
+    from . import notify, recorder
 
     try:
-        wav = recorder.start(config.load())
+        wav = recorder.start(cfg)
     except RuntimeError as exc:
-        print(f"voxpane start: {exc}", file=sys.stderr)
+        notify.notify("voxpane", str(exc), replace_id=notify.RECORDING_ID, urgency="critical")
+        print(f"voxpane: {exc}", file=sys.stderr)
         return 1
+    notify.notify(
+        "🎙  Recording…",
+        "Speak, then trigger voxpane again.",
+        replace_id=notify.RECORDING_ID,
+        expire_ms=0,  # persistent until replaced
+    )
     print(f"🎙  recording → {wav}\n    speak, then run: voxpane stop")
     return 0
 
 
-def _cmd_stop() -> int:
+def _stop_and_deliver(cfg) -> int:
     import time
 
-    from . import config, deliver, recorder, transcriber
+    from . import deliver, notify, recorder, transcriber
 
-    cfg = config.load()
     t0 = time.monotonic()
+
+    def fail(msg: str, *, critical: bool = False) -> int:
+        notify.notify(
+            "voxpane",
+            msg,
+            replace_id=notify.RECORDING_ID,
+            urgency="critical" if critical else "normal",
+        )
+        print(f"voxpane: {msg}", file=sys.stderr)
+        return 1
 
     try:
         wav = recorder.stop()
     except RuntimeError as exc:
-        print(f"voxpane stop: {exc}", file=sys.stderr)
-        return 1
+        return fail(str(exc), critical=True)
     if wav is None:
-        print("voxpane stop: nothing was recording", file=sys.stderr)
-        return 1
+        return fail("nothing was recording")
     if not wav.exists() or wav.stat().st_size == 0:
-        print(f"voxpane stop: no audio captured ({wav})", file=sys.stderr)
-        return 1
+        return fail(f"no audio captured ({wav})", critical=True)
 
+    notify.notify("⏳  Transcribing…", "", replace_id=notify.RECORDING_ID, expire_ms=0)
     try:
         transcript = transcriber.transcribe_file(wav, cfg)
     except RuntimeError as exc:
-        print(f"voxpane stop: {exc}", file=sys.stderr)
-        return 1
+        return fail(str(exc), critical=True)
     if not transcript:
-        print("voxpane stop: empty transcript", file=sys.stderr)
-        return 1
+        return fail("empty transcript")
 
     copied = True
     try:
         deliver.to_clipboard(transcript)
     except (RuntimeError, OSError) as exc:
         copied = False
-        print(f"voxpane stop: clipboard failed: {exc}", file=sys.stderr)
+        print(f"voxpane: clipboard failed: {exc}", file=sys.stderr)
 
     elapsed = time.monotonic() - t0
     _log(f"stop->clipboard {elapsed:.2f}s {len(transcript)}chars copied={copied}")
+    notify.notify(
+        "📋  Copied" if copied else "⚠️  Not copied",
+        _preview(transcript),
+        replace_id=notify.RECORDING_ID,
+        expire_ms=6000,
+    )
     print(transcript)
-    note = "copied, " if copied else "NOT copied, "
-    print(f"\n[{note}{elapsed:.2f}s]", file=sys.stderr)
+    print(f"\n[{'copied, ' if copied else 'NOT copied, '}{elapsed:.2f}s]", file=sys.stderr)
     return 0
 
 
-_HANDLERS = {"doctor": lambda: doctor.main(), "start": _cmd_start, "stop": _cmd_stop}
+def _cmd_start() -> int:
+    from . import config
+
+    return _start_recording(config.load())
+
+
+def _cmd_stop() -> int:
+    from . import config
+
+    return _stop_and_deliver(config.load())
+
+
+def _cmd_toggle() -> int:
+    from . import config, recorder
+
+    cfg = config.load()
+    return _stop_and_deliver(cfg) if recorder.is_recording() else _start_recording(cfg)
+
+
+def _cmd_install_bindings() -> int:
+    from . import bindings
+
+    try:
+        result = bindings.install()
+    except RuntimeError as exc:
+        print(f"voxpane install-bindings: {exc}", file=sys.stderr)
+        return 1
+
+    if result.status == "already":
+        print(f"✓ voxpane binding already present in {result.path}")
+        return 0
+    print(f"✓ bound {bindings.MODS} {bindings.KEY} → {bindings.CMD}")
+    print(f"  in {result.path} ({result.kind})")
+    if result.backup:
+        print(f"  backed up to {result.backup}")
+    if result.status == "created" and not result.sourced:
+        print(f"  ! {result.path.name} is new — add to hyprland.conf: source = {result.path}")
+    print("  reload Hyprland: hyprctl reload")
+    return 0
+
+
+_HANDLERS = {
+    "doctor": lambda: doctor.main(),
+    "start": _cmd_start,
+    "stop": _cmd_stop,
+    "toggle": _cmd_toggle,
+    "install-bindings": _cmd_install_bindings,
+}
 
 
 def main(argv: Sequence[str] | None = None) -> int:
