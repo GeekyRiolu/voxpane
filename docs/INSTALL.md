@@ -126,6 +126,40 @@ sox -n -r 22050 -c 1 /tmp/pad.wav trim 0.0 0.8
 sox /tmp/pad.wav speech.wav out.wav
 ```
 
+## 6b. Echo cancellation — hands-free "talk over audio" (optional)
+
+Hands-free listen mode keeps the mic open, so it can hear whatever your speakers
+play (a YouTube video, the Dot itself). voxpane handles this two ways:
+
+1. **Default — pause while audio plays** (`[listen] pause_on_playback = true`).
+   The mic is ignored whenever something is actively playing; **pause your video
+   and it listens again.** No setup. Combined with the focus gate (only listen
+   when the Claude window is focused), this covers the common case.
+
+2. **Advanced — echo cancellation** (talk *over* audio). PipeWire can subtract
+   the speaker signal from the mic so only your voice remains:
+
+   ```bash
+   # create an echo-cancelled virtual mic + sink (webrtc AEC)
+   pactl load-module module-echo-cancel aec_method=webrtc \
+     source_name=voxpane_ec source_master=@DEFAULT_SOURCE@ \
+     sink_name=voxpane_ec_sink sink_master=@DEFAULT_SINK@ \
+     use_master_format=1
+   ```
+
+   Route the audio you want cancelled through `voxpane_ec_sink` (e.g. set it as
+   the default output), then point voxpane's capture at the cleaned source in
+   `~/.config/voxpane/config.toml`:
+
+   ```toml
+   [audio]
+   source = "voxpane_ec"
+   ```
+
+   Make it permanent with a drop-in under `~/.config/pipewire/pipewire.conf.d/`.
+   AEC quality varies; if it's fiddly, the default pause-on-playback is the
+   reliable path.
+
 ## 7. Install the CLI & config
 
 ```bash

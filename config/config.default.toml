@@ -6,7 +6,7 @@
 
 [audio]
 source = "default"             # mic node; set to a PipeWire echo-cancel source to
-                               # strip speaker audio from the mic (docs/INSTALL.md §6)
+                               # strip speaker audio from the mic (docs/INSTALL.md §6b)
 rate = 16000
 max_seconds = 120
 
@@ -59,7 +59,7 @@ focus_match = ""                # optional class/title regex override (empty = t
 pause_on_playback = true        # pause the mic while other apps play audio, so it
                                 # never transcribes a video/song — pause it to talk.
                                 # For talking OVER audio, use an echo-cancel source
-                                # (audio.source) instead; see docs/INSTALL.md §6.
+                                # (audio.source) instead; see docs/INSTALL.md §6b.
 
 [speak]
 enabled = true
