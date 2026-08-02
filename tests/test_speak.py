@@ -14,10 +14,13 @@ def _iso(tmp_path, monkeypatch):
     monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
     monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path))
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
-    # Disable quiet hours so the positive test is time-of-day independent.
+    # Disable quiet hours (time-of-day independent) and pin facts-only summaries
+    # so the flow never shells out to a real LLM during tests.
     cfg_dir = tmp_path / "voxpane"
     cfg_dir.mkdir(parents=True, exist_ok=True)
-    (cfg_dir / "config.toml").write_text('[speak.gate]\nquiet_hours = ""\n')
+    (cfg_dir / "config.toml").write_text(
+        '[speak.gate]\nquiet_hours = ""\n\n[summary]\nmode = "facts"\n'
+    )
 
     spoken: list[tuple[str, str]] = []
 

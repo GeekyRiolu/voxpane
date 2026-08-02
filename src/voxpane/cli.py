@@ -261,11 +261,12 @@ def _speak_from_hook(payload: dict, cfg: dict) -> int:
     session = payload.get("session_id", "default")
     turn_facts = ledger.facts(ledger.read(session))
     turn_seconds = (time.time() - turn_facts["first_ts"]) if turn_facts.get("first_ts") else 0.0
+    last_message = _last_message(payload)
 
     speak, reason = gate.should_speak(
         turn_seconds=turn_seconds,
         has_tool_use=turn_facts["n_tools"] > 0,
-        last_message=_last_message(payload),
+        last_message=last_message,
         now=datetime.now().time(),
         gate_cfg=cfg["speak"]["gate"],
     )
@@ -274,8 +275,9 @@ def _speak_from_hook(payload: dict, cfg: dict) -> int:
         ledger.truncate(session)
         return 0
 
-    sentence = summarize.facts_sentence(turn_facts, project=_project_name(payload, cfg))
-    sentence = sentence[: cfg["speak"]["max_chars"]]
+    sentence = summarize.summarize(
+        turn_facts, last_message, cfg, project=_project_name(payload, cfg)
+    )
     notify.notify("voxpane", sentence, icon="audio-speakers")  # M6: notify only (M8 adds Echo)
     ledger.truncate(session)
     print(sentence)
