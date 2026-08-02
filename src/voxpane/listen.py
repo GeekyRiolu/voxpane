@@ -151,13 +151,22 @@ def stop() -> None:
 
 
 def _spawn_listener() -> None:
-    # Use THIS interpreter (which has webrtcvad) rather than bare `voxpane` on
-    # PATH, which may resolve to a from-source shim without the listen extra.
+    # Spawn with the ENV's python (sys.prefix/bin/python), not sys.executable: uv
+    # venvs symlink the interpreter to the base python, so sys.executable can point
+    # outside the venv (no voxpane/webrtcvad). sys.prefix keeps the venv packages.
+    # Capture the child's stderr to a log so a silent early exit is diagnosable.
+    env_python = os.path.join(sys.prefix, "bin", "python")
+    python = env_python if os.path.exists(env_python) else sys.executable
+    try:
+        paths.ensure(paths.state_dir())
+        err = open(paths.state_dir() / "listen.log", "ab")  # noqa: SIM115
+    except OSError:
+        err = subprocess.DEVNULL
     subprocess.Popen(
-        [sys.executable, "-m", "voxpane", "listen", "--run"],
+        [python, "-m", "voxpane", "listen", "--run"],
         stdin=subprocess.DEVNULL,
         stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
+        stderr=err,
         start_new_session=True,  # outlive the hook process
     )
 

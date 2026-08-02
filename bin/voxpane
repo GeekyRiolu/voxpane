@@ -12,8 +12,13 @@ import sys
 from pathlib import Path
 
 _ROOT = Path(__file__).resolve().parent.parent
-_VENV_PY = _ROOT / ".venv" / "bin" / "python"
-if _VENV_PY.exists() and Path(sys.executable).resolve() != _VENV_PY.resolve():
+_VENV = _ROOT / ".venv"
+_VENV_PY = _VENV / "bin" / "python"
+# Re-exec into the project venv unless we're already inside it. Compare
+# environment roots (sys.prefix), NOT resolved interpreter paths: uv venvs symlink
+# the interpreter to the base python, so comparing exe paths wrongly reports
+# "already there" and skips the venv, losing extras like faster-whisper/webrtcvad.
+if _VENV_PY.exists() and Path(sys.prefix).resolve() != _VENV.resolve():
     os.execv(str(_VENV_PY), [str(_VENV_PY), str(Path(__file__).resolve()), *sys.argv[1:]])
 
 sys.path.insert(0, str(_ROOT / "src"))
