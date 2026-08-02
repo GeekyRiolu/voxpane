@@ -19,6 +19,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shlex
 import shutil
 import signal
 import subprocess
@@ -299,6 +300,84 @@ def is_stop_word(text: str, cfg: dict[str, Any]) -> bool:
     return cleaned in {w.lower() for w in cfg["listen"].get("stop_words", [])}
 
 
+# ---------------------------------------------------- wake word (Alexa-style)
+
+_TERMINAL_EXEC = {
+    "ghostty": ["ghostty", "-e"],
+    "kitty": ["kitty"],  # runs `kitty <cmd>` directly (no -e)
+    "alacritty": ["alacritty", "-e"],
+    "foot": ["foot", "-e"],
+    "wezterm": ["wezterm", "start", "--"],
+    "xterm": ["xterm", "-e"],
+}
+
+
+def _wake_variants(wake_word: str, aliases: list[str]) -> list[str]:
+    variants = {wake_word.lower().strip(), *(a.lower().strip() for a in aliases if a.strip())}
+    return sorted((v for v in variants if v), key=len, reverse=True)
+
+
+def strip_wake_word(text: str, wake_word: str, aliases: list[str] | None = None) -> str | None:
+    """If ``text`` starts with the wake word (or an alias), return the request that
+    follows (possibly ""); else None. No wake word configured -> passthrough."""
+    if not wake_word:
+        return text
+    original = text.strip()
+    normalized = re.sub(r"\s+", " ", re.sub(r"[^a-z0-9 ]+", " ", original.lower())).strip()
+    for variant in _wake_variants(wake_word, aliases or []):
+        if normalized == variant:
+            return ""
+        if normalized.startswith(variant + " "):
+            request = " ".join(original.split()[len(variant.split()):])
+            return request.lstrip(" ,.:—-").strip()
+    return None
+
+
+def _pause_media() -> None:
+    if shutil.which("playerctl"):
+        subprocess.run(["playerctl", "--all-players", "pause"], capture_output=True)
+
+
+def _detect_terminal(cfg: dict[str, Any]) -> list[str] | None:
+    configured = (cfg["listen"].get("terminal") or "").strip()
+    if configured:
+        return shlex.split(configured)  # full prefix, incl. any exec flag
+    for term, prefix in _TERMINAL_EXEC.items():
+        if shutil.which(term):
+            return prefix
+    return None
+
+
+def _open_claude(request: str, cfg: dict[str, Any]) -> bool:
+    terminal = _detect_terminal(cfg)
+    if terminal is None:
+        return False
+    command = cfg["listen"].get("wake_open_command", "claude")
+    subprocess.Popen(
+        [*terminal, "sh", "-lc", f"{command} {shlex.quote(request)}"],
+        stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        start_new_session=True,
+    )
+    return True
+
+
+def _wake_deliver(request: str, cfg: dict[str, Any]) -> None:
+    from . import deliver
+
+    # Prefer an existing Claude window: focus it (Hyprland), then paste + submit.
+    address = next((w.get("address") for w in _load_windows().values() if w.get("address")), None)
+    if address and shutil.which("hyprctl"):
+        subprocess.run(
+            ["hyprctl", "dispatch", "focuswindow", f"address:{address}"], capture_output=True
+        )
+        time.sleep(0.2)
+        focus_cfg = {**cfg, "delivery": {**cfg["delivery"], "mode": "focus"}}
+        deliver.deliver(request, focus_cfg, submit=True)
+        return
+    if not _open_claude(request, cfg):  # no session and no terminal — last resort
+        deliver.deliver(request, cfg, submit=True)
+
+
 def handle_utterance(pcm: bytes, cfg: dict[str, Any]) -> str | None:
     """Transcribe and act on one utterance. Returns the delivered text, or None."""
     from . import config as config_mod
@@ -312,15 +391,28 @@ def handle_utterance(pcm: bytes, cfg: dict[str, Any]) -> str | None:
         return None
     finally:
         _unlink(wav)
-
     if not text:
         return None
+
+    lc = cfg["listen"]
+    wake = lc.get("wake_word", "").strip()
+    if wake:
+        request = strip_wake_word(text, wake, lc.get("wake_aliases", []))
+        if request is None:
+            return None  # not addressed to voxpane — ignore
+        if lc.get("pause_media_on_wake", True):
+            _pause_media()
+        if not request:
+            return None  # just the wake word, no request yet
+        rewritten = postprocess.apply(request, config_mod.load_commands(), cfg)
+        _wake_deliver(rewritten.text, cfg)
+        return rewritten.text
+
     if is_stop_word(text, cfg):
         hush.hush()
         return None
-
     rewritten = postprocess.apply(text, config_mod.load_commands(), cfg)
-    submit = cfg["listen"].get("auto_submit", True) or rewritten.submit
+    submit = lc.get("auto_submit", True) or rewritten.submit
     deliver.deliver(rewritten.text, cfg, submit=submit)
     return rewritten.text
 
@@ -350,6 +442,7 @@ def run(cfg: dict[str, Any] | None = None) -> int:
     guard = lc.get("post_speak_guard_ms", 700) / 1000
     poll = lc.get("focus_poll_ms", 250) / 1000
     pause_on_playback = lc.get("pause_on_playback", True)
+    wake = lc.get("wake_word", "").strip()
 
     paths.ensure(paths.runtime_dir())
     paths.listener_pid_file().write_text(str(os.getpid()))
@@ -367,7 +460,11 @@ def run(cfg: dict[str, Any] | None = None) -> int:
             # Listen only when the Claude window is focused AND nothing else is
             # playing audio (throttled) — so the mic ignores YouTube, calls, etc.
             if now - last_check >= poll:
-                active = focus_ok(cfg) and not (pause_on_playback and _media_playing())
+                # Wake-word mode listens everywhere (filtered by the wake word);
+                # otherwise gate on focus + whether other audio is playing.
+                active = wake != "" or (
+                    focus_ok(cfg) and not (pause_on_playback and _media_playing())
+                )
                 last_check = now
             if not active:
                 endpointer.reset()

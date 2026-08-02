@@ -51,6 +51,11 @@ _SAFETY_DEFAULTS: dict[str, Any] = {
         "focus_poll_ms": 250,
         "focus_match": "",
         "pause_on_playback": True,
+        "wake_word": "",
+        "wake_aliases": ["vox pane", "vox pain", "box pane", "fox pane", "voxpin", "vox pan"],
+        "pause_media_on_wake": True,
+        "wake_open_command": "claude --dangerously-skip-permissions --model opus",
+        "terminal": "",
     },
     "speak": {
         "enabled": True,

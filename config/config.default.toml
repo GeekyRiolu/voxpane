@@ -61,6 +61,16 @@ pause_on_playback = true        # pause the mic while other apps play audio, so 
                                 # For talking OVER audio, use an echo-cancel source
                                 # (audio.source) instead; see docs/INSTALL.md §6b.
 
+# Wake word (Alexa-style). Empty = send everything (focus/playback-gated, above).
+# Set it and the listener runs EVERYWHERE, acting only on "<wake word> ...": it
+# pauses media, then sends the rest to Claude (opening a session if none is up).
+# Whisper mangles odd words, so tune wake_aliases to the mis-hearings you see.
+wake_word = ""                  # e.g. "voxpane"
+wake_aliases = ["vox pane", "vox pain", "box pane", "fox pane", "voxpin", "vox pan"]
+pause_media_on_wake = true      # playerctl pause on wake
+wake_open_command = "claude --dangerously-skip-permissions --model opus"
+terminal = ""                   # terminal to open a new session in ("" = autodetect)
+
 [speak]
 enabled = true
 backends = ["alexa", "bluetooth", "notify"]   # tried in order

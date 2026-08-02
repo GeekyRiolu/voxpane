@@ -175,3 +175,31 @@ def test_audio_command_targets_configured_source(monkeypatch):
 def test_audio_command_no_target_for_default(monkeypatch):
     monkeypatch.setattr(listen.shutil, "which", lambda name: "/usr/bin/pw-cat")
     assert "--target" not in listen._audio_command(config.defaults())
+
+
+# --- wake word (Alexa-style "voxpane …") ---
+
+def test_wake_passthrough_when_unset():
+    assert listen.strip_wake_word("just some text", "") == "just some text"
+
+
+def test_wake_extracts_request():
+    assert listen.strip_wake_word("voxpane list the files", "voxpane") == "list the files"
+
+
+def test_wake_matches_alias():
+    aliases = config.defaults()["listen"]["wake_aliases"]
+    result = listen.strip_wake_word("vox pane open the readme", "voxpane", aliases)
+    assert result == "open the readme"
+
+
+def test_wake_ignores_unaddressed_speech():
+    assert listen.strip_wake_word("what time is it", "voxpane") is None
+
+
+def test_wake_word_alone_returns_empty_request():
+    assert listen.strip_wake_word("Voxpane.", "voxpane") == ""
+
+
+def test_wake_strips_leading_punctuation():
+    assert listen.strip_wake_word("voxpane, run the tests", "voxpane") == "run the tests"
