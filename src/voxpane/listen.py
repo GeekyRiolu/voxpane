@@ -158,9 +158,31 @@ def _save_windows(windows: dict[str, dict[str, str]]) -> None:
     paths.listen_windows_file().write_text(json.dumps(windows))
 
 
+# Window classes that host a Claude Code session (it always runs in a terminal).
+# Used to gate window capture + wake delivery so a browser/other app is never
+# treated as "the Claude window" and a request is never misrouted into it.
+_TERMINAL_CLASSES = (
+    "alacritty", "kitty", "foot", "ghostty", "wezterm", "xterm",
+    "konsole", "terminal", "termite", "urxvt", "rxvt", "tilix",
+    "org.wezfurlong", "com.mitchellh.ghostty", "kgx",
+)
+
+
+def _is_terminal_window(window: dict[str, str] | None) -> bool:
+    """True if ``window`` looks like a terminal (or a Claude session by title)."""
+    if not window:
+        return False
+    cls = (window.get("class") or "").lower()
+    title = (window.get("title") or "").lower()
+    return "claude" in title or any(t in cls for t in _TERMINAL_CLASSES)
+
+
 def _capture_window(session_id: str) -> None:
     window = _active_window()
-    if window and window.get("address"):
+    # Only remember terminal windows: Claude Code runs in a terminal, so a browser
+    # focused when the session registers must not become "the Claude window" (it
+    # would gate the mic to that app and misroute wake requests into it).
+    if window and window.get("address") and _is_terminal_window(window):
         windows = _load_windows()
         windows[session_id] = window
         _save_windows(windows)
@@ -219,7 +241,11 @@ def stop() -> None:
             os.kill(pid, signal.SIGTERM)
         except ProcessLookupError:
             pass
-    _unlink(paths.listener_pid_file())
+    # Only remove the pid file if it still names the listener we signalled — a
+    # freshly-spawned listener may have already claimed it (rapid restart), and
+    # clobbering its pid file would make it invisible to is_listening().
+    if _read_pid(paths.listener_pid_file()) == pid:
+        _unlink(paths.listener_pid_file())
 
 
 def _spawn_listener() -> None:
@@ -364,11 +390,17 @@ def _open_claude(request: str, cfg: dict[str, Any]) -> bool:
 def _wake_deliver(request: str, cfg: dict[str, Any]) -> None:
     from . import deliver
 
-    # Prefer an existing Claude window: focus it (Hyprland), then paste + submit.
-    address = next((w.get("address") for w in _load_windows().values() if w.get("address")), None)
-    if address and shutil.which("hyprctl"):
+    # Prefer an existing Claude *terminal*: focus it (Hyprland), then paste + submit.
+    # Never a captured non-terminal (e.g. a browser) — open a fresh Claude session
+    # instead of pasting the request into the wrong app.
+    window = next(
+        (w for w in _load_windows().values() if w.get("address") and _is_terminal_window(w)),
+        None,
+    )
+    if window and shutil.which("hyprctl"):
         subprocess.run(
-            ["hyprctl", "dispatch", "focuswindow", f"address:{address}"], capture_output=True
+            ["hyprctl", "dispatch", "focuswindow", f"address:{window['address']}"],
+            capture_output=True,
         )
         time.sleep(0.2)
         focus_cfg = {**cfg, "delivery": {**cfg["delivery"], "mode": "focus"}}
@@ -496,6 +528,9 @@ def run(cfg: dict[str, Any] | None = None) -> int:
                 shown = "listening"
     finally:
         proc.terminate()
-        _unlink(paths.listener_pid_file())
+        # Don't clobber a newer listener's pid file on a rapid restart: only clear
+        # the file if it still names us.
+        if _read_pid(paths.listener_pid_file()) == os.getpid():
+            _unlink(paths.listener_pid_file())
         overlay.clear()
     return 0

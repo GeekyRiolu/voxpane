@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from voxpane import config, listen
+from voxpane import config, listen, paths
 
 
 def _feed(endpointer, speech_pattern):
@@ -203,3 +203,71 @@ def test_wake_word_alone_returns_empty_request():
 
 def test_wake_strips_leading_punctuation():
     assert listen.strip_wake_word("voxpane, run the tests", "voxpane") == "run the tests"
+
+
+def test_is_terminal_window_true_for_terminals():
+    assert listen._is_terminal_window({"class": "Alacritty", "title": "nvim"})
+    assert listen._is_terminal_window({"class": "com.mitchellh.ghostty", "title": ""})
+
+
+def test_is_terminal_window_true_for_claude_by_title():
+    assert listen._is_terminal_window({"class": "weird-wm", "title": "claude — ~/work"})
+
+
+def test_is_terminal_window_false_for_browser():
+    assert not listen._is_terminal_window({"class": "chromium", "title": "YouTube"})
+    assert not listen._is_terminal_window(None)
+
+
+def test_capture_window_skips_non_terminal(tmp_path, monkeypatch):
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
+    monkeypatch.setattr(
+        listen, "_active_window",
+        lambda: {"address": "0x1", "class": "chromium", "title": "a video"},
+    )
+    listen._capture_window("s1")
+    assert listen._load_windows() == {}  # a browser must not become "the Claude window"
+
+
+def test_capture_window_remembers_terminal(tmp_path, monkeypatch):
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
+    monkeypatch.setattr(
+        listen, "_active_window",
+        lambda: {"address": "0x2", "class": "Alacritty", "title": "claude"},
+    )
+    listen._capture_window("s1")
+    assert listen._load_windows()["s1"]["address"] == "0x2"
+
+
+def test_wake_deliver_opens_terminal_when_only_browser_captured(monkeypatch):
+    monkeypatch.setattr(
+        listen, "_load_windows",
+        lambda: {"s1": {"address": "0x1", "class": "chromium", "title": "a video"}},
+    )
+    calls = []
+    monkeypatch.setattr(listen, "_open_claude", lambda req, cfg: calls.append(req) or True)
+    listen._wake_deliver("run the tests", {"delivery": {"mode": "focus"}, "listen": {}})
+    assert calls == ["run the tests"]  # opened a fresh session, did not paste into the browser
+
+
+def test_stop_removes_its_own_pidfile(tmp_path, monkeypatch):
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
+    paths.ensure(paths.runtime_dir())
+    pidfile = paths.listener_pid_file()
+    pidfile.write_text("111")
+    monkeypatch.setattr(listen, "_alive", lambda pid: False)  # already gone
+    listen.stop()
+    assert not pidfile.exists()
+
+
+def test_stop_keeps_pidfile_reclaimed_by_a_new_listener(tmp_path, monkeypatch):
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
+    paths.ensure(paths.runtime_dir())
+    pidfile = paths.listener_pid_file()
+    pidfile.write_text("111")
+    monkeypatch.setattr(listen, "_alive", lambda pid: False)
+    # stop() targets 111, but a fresh listener reclaims the file before the guard.
+    reads = iter([111, 222])
+    monkeypatch.setattr(listen, "_read_pid", lambda p: next(reads))
+    listen.stop()
+    assert pidfile.exists()  # 222 != 111 -> must not remove the new listener's pid file
