@@ -36,6 +36,18 @@ _SAFETY_DEFAULTS: dict[str, Any] = {
         "focus_paste_delay_ms": 80,
     },
     "behavior": {"strip_filler": True, "trailing_submit_phrase": "send it"},
+    "listen": {
+        "enabled": True,
+        "endpoint_silence_ms": 1500,
+        "min_speech_ms": 300,
+        "max_utterance_seconds": 30,
+        "vad_aggressiveness": 2,
+        "auto_submit": True,
+        "conversational": True,
+        "post_speak_guard_ms": 700,
+        "barge_in": False,
+        "stop_words": ["stop", "stop it", "enough", "cancel", "never mind"],
+    },
     "speak": {
         "enabled": True,
         "backends": ["alexa", "bluetooth", "notify"],

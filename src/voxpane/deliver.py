@@ -31,7 +31,7 @@ def deliver(text: str, cfg: dict[str, Any], *, submit: bool = False) -> str:
     if mode == "tmux":
         return _deliver_tmux(text, cfg, submit=submit)
     if mode == "focus":
-        return _deliver_focus(text, cfg)
+        return _deliver_focus(text, cfg, submit=submit)
     return _deliver_clipboard(text)
 
 
@@ -63,7 +63,7 @@ def _deliver_tmux(text: str, cfg: dict[str, Any], *, submit: bool) -> str:
     return f"sent to tmux {target}" + (" + Enter" if submit else "")
 
 
-def _deliver_focus(text: str, cfg: dict[str, Any]) -> str:
+def _deliver_focus(text: str, cfg: dict[str, Any], *, submit: bool = False) -> str:
     to_clipboard(text)
     delay_ms = int(cfg["delivery"].get("focus_paste_delay_ms", 80))
     time.sleep(delay_ms / 1000)
@@ -74,7 +74,9 @@ def _deliver_focus(text: str, cfg: dict[str, Any]) -> str:
         ["wtype", "-M", "ctrl", "-M", "shift", "-k", "v", "-m", "shift", "-m", "ctrl"],
         check=True,
     )
-    return "pasted into focused window"
+    if submit:
+        subprocess.run(["wtype", "-k", "Return"], check=True)
+    return "pasted into focused window" + (" + Enter" if submit else "")
 
 
 def to_clipboard(text: str) -> None:

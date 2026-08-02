@@ -11,10 +11,12 @@ a silent gap gets swallowed ("Done — three files" -> "ee files"). Autodetect t
 from __future__ import annotations
 
 import shutil
+import signal
 import subprocess
 import tempfile
 from pathlib import Path
 
+from .. import paths
 from .base import Speaker, SpeakerError
 
 
@@ -100,11 +102,28 @@ class BluetoothSpeaker(Speaker):
         return padded
 
     def _play(self, sink: str, wav: Path) -> None:
+        # Popen (not run) so `voxpane hush` can SIGTERM this pid mid-playback.
         try:
-            result = subprocess.run(
-                ["pw-play", "--target", sink, str(wav)], capture_output=True, text=True, timeout=30
+            proc = subprocess.Popen(
+                ["pw-play", "--target", sink, str(wav)],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
             )
-        except (OSError, subprocess.SubprocessError) as exc:
+        except OSError as exc:
             raise SpeakerError(f"pw-play: {exc}") from exc
-        if result.returncode != 0:
-            raise SpeakerError(f"pw-play: {result.stderr.strip() or result.returncode}")
+        paths.ensure(paths.runtime_dir())
+        paths.play_pid_file().write_text(str(proc.pid))
+        try:
+            _, err = proc.communicate(timeout=30)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            raise SpeakerError("pw-play timed out") from None
+        finally:
+            try:
+                paths.play_pid_file().unlink()
+            except FileNotFoundError:
+                pass
+        # 0 = ok; -SIGTERM = a deliberate `voxpane hush`, not an error.
+        if proc.returncode not in (0, -signal.SIGTERM):
+            detail = (err or b"").decode(errors="replace").strip() or proc.returncode
+            raise SpeakerError(f"pw-play: {detail}")

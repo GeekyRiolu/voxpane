@@ -33,6 +33,22 @@ focus_paste_delay_ms = 80      # focus mode: wait before the paste chord
 strip_filler = true
 trailing_submit_phrase = "send it"   # say this to submit that one utterance
 
+[listen]
+# Hands-free conversation mode: a continuous VAD loop, auto-started per Claude
+# session (SessionStart/End hooks). No push-to-talk. Needs the `listen` extra:
+#   uv tool install --force 'voxpane[daemon,listen]'
+enabled = true
+endpoint_silence_ms = 1500      # auto-submit after this much trailing silence
+min_speech_ms = 300             # ignore blips shorter than this (coughs, clicks)
+max_utterance_seconds = 30      # hard cap on a single utterance
+vad_aggressiveness = 2          # webrtcvad 0..3 — higher filters more non-speech
+auto_submit = true              # press Enter after delivering (hands-free)
+conversational = true           # speak Claude's response, and relax the gate
+post_speak_guard_ms = 700       # ignore the mic this long after the Dot speaks
+barge_in = false                # EXPERIMENTAL: your speech interrupts the Dot
+                                # (unreliable without mic/speaker separation)
+stop_words = ["stop", "stop it", "enough", "cancel", "never mind"]
+
 [speak]
 enabled = true
 backends = ["alexa", "bluetooth", "notify"]   # tried in order

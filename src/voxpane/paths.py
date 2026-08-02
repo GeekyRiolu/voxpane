@@ -92,6 +92,21 @@ def speaking_marker() -> Path:
     return runtime_dir() / "speaking"
 
 
+def listener_pid_file() -> Path:
+    """PID of the hands-free `voxpane listen` loop."""
+    return runtime_dir() / "listen.pid"
+
+
+def listen_sessions_file() -> Path:
+    """Set of active Claude session ids keeping the listener alive (ref-count)."""
+    return runtime_dir() / "listen-sessions"
+
+
+def play_pid_file() -> Path:
+    """PID of the in-progress TTS playback, so `voxpane hush` can stop it."""
+    return runtime_dir() / "play.pid"
+
+
 def ensure(directory: Path) -> Path:
     """Create ``directory`` (and parents) if missing, then return it."""
     directory.mkdir(parents=True, exist_ok=True)
