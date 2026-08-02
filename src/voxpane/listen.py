@@ -151,8 +151,10 @@ def stop() -> None:
 
 
 def _spawn_listener() -> None:
+    # Use THIS interpreter (which has webrtcvad) rather than bare `voxpane` on
+    # PATH, which may resolve to a from-source shim without the listen extra.
     subprocess.Popen(
-        ["voxpane", "listen", "--run"],
+        [sys.executable, "-m", "voxpane", "listen", "--run"],
         stdin=subprocess.DEVNULL,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
