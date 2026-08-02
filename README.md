@@ -166,6 +166,15 @@ The knobs you'll reach for first:
 | `speak.alexa.device` | your Echo's name, e.g. `"Office Dot"` |
 | `summary.mode` | `facts` · `llm` · `hybrid` — how the summary is built |
 
+## Performance
+
+Run `voxpane daemon` (or enable the `systemd --user` unit) to keep a
+`faster-whisper` model resident in RAM; the CLI becomes a thin socket client and
+falls back to a `whisper-cli` subprocess if the daemon isn't running, so it never
+hard-fails. **Target: p50 from key-release to delivered text under 1.2 s for a
+~10 s utterance.** Every turn's stop→deliver time is recorded in
+`~/.local/state/voxpane/log`, so you can measure your own numbers.
+
 ## Project layout
 
 ```

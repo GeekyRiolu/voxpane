@@ -17,7 +17,6 @@ from . import __version__, doctor
 # subcommand -> (milestone, what it will do). Keeps the "not yet built" surface
 # honest and points contributors at the right part of the plan.
 _PENDING: dict[str, tuple[str, str]] = {
-    "daemon": ("M5", "run voxpaned with the model resident in RAM"),
     "speak": ("M8", "summarise a turn and speak it on the Echo Dot"),
     "ledger": ("M6", "append to / show / prune the activity ledger"),
     "install-hooks": ("M6", "merge voxpane hooks into ~/.claude/settings.json"),
@@ -39,7 +38,7 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("start", help="record; then `voxpane stop` transcribes")
     sub.add_parser("stop", help="stop, transcribe, copy transcript to clipboard")
     sub.add_parser("toggle", help="toggle recording on/off — bind this to a key")
-    sub.add_parser("daemon", help="run the resident STT daemon [M5]")
+    sub.add_parser("daemon", help="run the resident STT daemon (voxpaned)")
 
     speak = sub.add_parser("speak", help="speak a turn summary [M8]")
     speak.add_argument("text", nargs="?", help="text to speak")
@@ -138,7 +137,7 @@ def _stop_and_deliver(cfg) -> int:
 
     notify.notify("⏳  Transcribing…", "", replace_id=notify.RECORDING_ID, expire_ms=0)
     try:
-        transcript = transcriber.transcribe_file(wav, cfg)
+        transcript = transcriber.transcribe(wav, cfg)
     except RuntimeError as exc:
         return fail(str(exc), critical=True)
     if not transcript:
@@ -211,11 +210,18 @@ def _cmd_install_bindings() -> int:
     return 0
 
 
+def _cmd_daemon() -> int:
+    from . import daemon
+
+    return daemon.serve()
+
+
 _HANDLERS = {
     "doctor": lambda: doctor.main(),
     "start": _cmd_start,
     "stop": _cmd_stop,
     "toggle": _cmd_toggle,
+    "daemon": _cmd_daemon,
     "install-bindings": _cmd_install_bindings,
 }
 

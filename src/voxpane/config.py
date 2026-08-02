@@ -24,6 +24,7 @@ _SAFETY_DEFAULTS: dict[str, Any] = {
     "whisper": {
         "binary": "whisper-cli",
         "model": "~/.local/share/whisper-models/ggml-large-v3-turbo-q5_0.bin",
+        "daemon_model": "large-v3-turbo",
         "language": "en",
         "threads": 0,
         "initial_prompt": "",

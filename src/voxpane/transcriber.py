@@ -11,13 +11,16 @@ vocabulary; hard-capped at 224 tokens — we warn past a rough word estimate).
 
 from __future__ import annotations
 
+import json
 import shutil
+import socket
 import subprocess
 import sys
 from pathlib import Path
 from typing import Any
 
 from . import config as config_mod
+from . import paths
 
 _PROMPT_TOKEN_CAP = 224
 
@@ -64,6 +67,49 @@ def transcribe_file(wav: Path, cfg: dict[str, Any]) -> str:
 
 
 def transcribe_via_daemon(wav: Path, cfg: dict[str, Any]) -> str | None:
-    """Ask ``voxpaned`` to transcribe. Return ``None`` if the socket is absent so
+    """Ask ``voxpaned`` to transcribe. Returns ``None`` if the daemon is
+    unavailable (socket absent, refused, timed out, or it reported an error) so
     the caller can fall back to :func:`transcribe_file`."""
-    raise NotImplementedError("transcriber.transcribe_via_daemon — milestone M5")
+    sock_path = paths.socket_path()
+    if not sock_path.exists():
+        return None
+
+    request = {
+        "wav": str(wav),
+        "language": cfg["whisper"].get("language", "en"),
+        "initial_prompt": (cfg["whisper"].get("initial_prompt") or "").strip(),
+    }
+    try:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
+            client.settimeout(120)
+            client.connect(str(sock_path))
+            client.sendall((json.dumps(request) + "\n").encode("utf-8"))
+            data = _recv_line(client)
+    except OSError:
+        return None
+
+    if not data:
+        return None
+    response = json.loads(data)
+    if "error" in response:
+        print(f"[voxpane] daemon error, falling back: {response['error']}", file=sys.stderr)
+        return None
+    return response.get("text", "")
+
+
+def transcribe(wav: Path, cfg: dict[str, Any]) -> str:
+    """Transcribe via the daemon if available, else the subprocess path."""
+    text = transcribe_via_daemon(wav, cfg)
+    return text if text is not None else transcribe_file(wav, cfg)
+
+
+def _recv_line(conn: socket.socket) -> str:
+    chunks: list[bytes] = []
+    while True:
+        buf = conn.recv(4096)
+        if not buf:
+            break
+        chunks.append(buf)
+        if b"\n" in buf:
+            break
+    return b"".join(chunks).decode("utf-8", "replace").split("\n", 1)[0]

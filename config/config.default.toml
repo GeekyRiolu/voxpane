@@ -12,6 +12,7 @@ max_seconds = 120
 [whisper]
 binary = "whisper-cli"
 model = "~/.local/share/whisper-models/ggml-large-v3-turbo-q5_0.bin"
+daemon_model = "large-v3-turbo"   # faster-whisper model used by `voxpane daemon` (M5)
 language = "en"
 threads = 0
 # Biases the decoder toward your vocabulary. Caps at 224 tokens — voxpane warns
