@@ -98,3 +98,27 @@ def load(path: Path | None = None) -> dict[str, Any]:
 def model_path(cfg: dict[str, Any]) -> Path:
     """Resolve ``whisper.model`` to an absolute, ~-expanded path."""
     return Path(cfg["whisper"]["model"]).expanduser()
+
+
+def _default_commands_path() -> Path | None:
+    here = Path(__file__).resolve()
+    candidates = [
+        here.parents[2] / "config" / "commands.default.toml",
+        here.parent / "data" / "commands.default.toml",
+    ]
+    return next((c for c in candidates if c.is_file()), None)
+
+
+def default_commands() -> dict[str, Any]:
+    """Return the shipped command dictionary (text/keys/transforms/fixups)."""
+    path = _default_commands_path()
+    return tomllib.loads(path.read_text()) if path is not None else {}
+
+
+def load_commands(path: Path | None = None) -> dict[str, Any]:
+    """Return the effective command dictionary: user file merged over defaults."""
+    base = default_commands()
+    commands_path = path or paths.commands_file()
+    if commands_path.is_file():
+        return _deep_merge(base, tomllib.loads(commands_path.read_text()))
+    return base

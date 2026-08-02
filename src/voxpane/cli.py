@@ -113,7 +113,7 @@ def _start_recording(cfg) -> int:
 def _stop_and_deliver(cfg) -> int:
     import time
 
-    from . import deliver, notify, recorder, transcriber
+    from . import config, deliver, notify, postprocess, recorder, transcriber
 
     t0 = time.monotonic()
 
@@ -144,24 +144,28 @@ def _stop_and_deliver(cfg) -> int:
     if not transcript:
         return fail("empty transcript")
 
+    rewritten = postprocess.apply(transcript, config.load_commands(), cfg)
+    text = rewritten.text
+    submit = rewritten.submit or cfg["delivery"]["auto_submit"]
+
     ok = True
     try:
-        status = deliver.deliver(transcript, cfg, submit=cfg["delivery"]["auto_submit"])
+        status = deliver.deliver(text, cfg, submit=submit)
     except (RuntimeError, OSError) as exc:
         ok = False
         status = f"delivery failed: {exc}"
         print(f"voxpane: {status}", file=sys.stderr)
 
     elapsed = time.monotonic() - t0
-    _log(f"stop->deliver {elapsed:.2f}s {len(transcript)}chars {status}")
+    _log(f"stop->deliver {elapsed:.2f}s {len(text)}chars submit={submit} {status}")
     notify.notify(
         f"voxpane — {status}" if ok else "voxpane — delivery failed",
-        _preview(transcript),
+        _preview(text),
         replace_id=notify.RECORDING_ID,
         expire_ms=6000,
         urgency="normal" if ok else "critical",
     )
-    print(transcript)
+    print(text)
     print(f"\n[{status}, {elapsed:.2f}s]", file=sys.stderr)
     return 0
 
