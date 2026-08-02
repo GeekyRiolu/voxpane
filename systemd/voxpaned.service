@@ -19,8 +19,6 @@ Type=simple
 ExecStart=%h/.local/bin/voxpane daemon
 Restart=on-failure
 RestartSec=2
-# Model lives in RAM; stay responsive on key-release.
-Nice=-5
 
 [Install]
 WantedBy=default.target
