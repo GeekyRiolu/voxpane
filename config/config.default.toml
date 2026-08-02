@@ -48,6 +48,13 @@ post_speak_guard_ms = 700       # ignore the mic this long after the Dot speaks
 barge_in = false                # EXPERIMENTAL: your speech interrupts the Dot
                                 # (unreliable without mic/speaker separation)
 stop_words = ["stop", "stop it", "enough", "cancel", "never mind"]
+# Only listen while the Claude Code terminal is focused (Hyprland). The window is
+# captured when the session starts; switch to a browser/other app and the mic is
+# ignored — so it won't transcribe YouTube, calls, or someone else talking.
+focus_only = true
+focus_poll_ms = 250             # how often to check the focused window
+focus_match = ""                # optional class/title regex override (empty = the
+                                # exact window Claude started in)
 
 [speak]
 enabled = true

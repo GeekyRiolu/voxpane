@@ -47,6 +47,9 @@ _SAFETY_DEFAULTS: dict[str, Any] = {
         "post_speak_guard_ms": 700,
         "barge_in": False,
         "stop_words": ["stop", "stop it", "enough", "cancel", "never mind"],
+        "focus_only": True,
+        "focus_poll_ms": 250,
+        "focus_match": "",
     },
     "speak": {
         "enabled": True,

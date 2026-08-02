@@ -84,3 +84,49 @@ def test_ensure_noop_when_disabled(tmp_path, monkeypatch):
     cfg = config.defaults()
     cfg["listen"]["enabled"] = False
     listen.ensure("a", cfg)  # must not spawn
+
+
+# --- focus gate: only listen while the Claude window is focused ---
+
+def test_focus_ok_true_when_disabled():
+    cfg = config.defaults()
+    cfg["listen"]["focus_only"] = False
+    assert listen.focus_ok(cfg) is True
+
+
+def test_focus_ok_true_for_the_captured_window(monkeypatch):
+    win = {"address": "0xabc", "class": "foot", "title": "claude"}
+    monkeypatch.setattr(listen, "_active_window", lambda: win)
+    monkeypatch.setattr(listen, "_load_windows", lambda: {"s1": win})
+    assert listen.focus_ok(config.defaults()) is True
+
+
+def test_focus_ok_false_for_a_different_window(monkeypatch):
+    other = {"address": "0xff", "class": "firefox", "title": "YouTube"}
+    captured = {"address": "0xabc", "class": "foot", "title": ""}
+    monkeypatch.setattr(listen, "_active_window", lambda: other)
+    monkeypatch.setattr(listen, "_load_windows", lambda: {"s1": captured})
+    assert listen.focus_ok(config.defaults()) is False  # ignores YouTube
+
+
+def test_focus_ok_true_when_nothing_captured(monkeypatch):
+    win = {"address": "0xabc", "class": "foot", "title": ""}
+    monkeypatch.setattr(listen, "_active_window", lambda: win)
+    monkeypatch.setattr(listen, "_load_windows", lambda: {})
+    assert listen.focus_ok(config.defaults()) is True  # don't block if unset
+
+
+def test_focus_ok_true_when_undetectable(monkeypatch):
+    monkeypatch.setattr(listen, "_active_window", lambda: None)  # no hyprctl
+    assert listen.focus_ok(config.defaults()) is True
+
+
+def test_focus_match_regex_override(monkeypatch):
+    cfg = config.defaults()
+    cfg["listen"]["focus_match"] = "kitty|foot"
+    term = {"address": "0x1", "class": "foot", "title": "x"}
+    browser = {"address": "0x2", "class": "firefox", "title": "yt"}
+    monkeypatch.setattr(listen, "_active_window", lambda: term)
+    assert listen.focus_ok(cfg) is True
+    monkeypatch.setattr(listen, "_active_window", lambda: browser)
+    assert listen.focus_ok(cfg) is False

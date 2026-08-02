@@ -158,7 +158,12 @@ session** (`SessionStart`/`SessionEnd` hooks, ref-counted across sessions), and:
 - **say "stop"** (or press **SUPER ALT S** → `voxpane hush`) to cut the Dot off
   mid-sentence once you've heard enough;
 - **no feedback loop** — the mic is muted while the Dot speaks (plus a short
-  guard), so it never transcribes its own voice.
+  guard), so it never transcribes its own voice;
+- **focus-gated** — it only listens while the Claude Code window is focused
+  (Hyprland; captured at session start), so switching to a browser or a call
+  silences the mic — it won't transcribe YouTube or someone else talking. Set
+  `[listen] focus_only = false` to disable, or `focus_match` to a terminal-class
+  regex.
 
 ```bash
 uv tool install --force 'voxpane[daemon,listen]'   # adds webrtcvad

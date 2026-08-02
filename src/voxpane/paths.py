@@ -107,6 +107,12 @@ def play_pid_file() -> Path:
     return runtime_dir() / "play.pid"
 
 
+def listen_windows_file() -> Path:
+    """Per-session focused-window info; the listener only listens when one is
+    focused (so it ignores YouTube, calls, other apps)."""
+    return runtime_dir() / "listen-windows.json"
+
+
 def ensure(directory: Path) -> Path:
     """Create ``directory`` (and parents) if missing, then return it."""
     directory.mkdir(parents=True, exist_ok=True)

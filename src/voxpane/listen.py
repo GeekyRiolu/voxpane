@@ -16,7 +16,10 @@ live capture/transcribe glue needs a real mic to validate.
 
 from __future__ import annotations
 
+import json
 import os
+import re
+import shutil
 import signal
 import subprocess
 import sys
@@ -120,6 +123,72 @@ def _write_sessions(sessions: set[str]) -> None:
     paths.listen_sessions_file().write_text(" ".join(sorted(sessions)))
 
 
+# --------------------------------------------------- focus gate (Hyprland)
+
+def _active_window() -> dict[str, str] | None:
+    """The focused window on Hyprland, or None if it can't be determined."""
+    if not shutil.which("hyprctl"):
+        return None
+    try:
+        result = subprocess.run(
+            ["hyprctl", "activewindow", "-j"], capture_output=True, text=True, timeout=2
+        )
+        window = json.loads(result.stdout)
+    except (OSError, subprocess.SubprocessError, json.JSONDecodeError):
+        return None
+    if not isinstance(window, dict):
+        return None
+    return {
+        "address": window.get("address", ""),
+        "class": window.get("class", ""),
+        "title": window.get("title", ""),
+    }
+
+
+def _load_windows() -> dict[str, dict[str, str]]:
+    try:
+        return json.loads(paths.listen_windows_file().read_text())
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
+def _save_windows(windows: dict[str, dict[str, str]]) -> None:
+    paths.ensure(paths.runtime_dir())
+    paths.listen_windows_file().write_text(json.dumps(windows))
+
+
+def _capture_window(session_id: str) -> None:
+    window = _active_window()
+    if window and window.get("address"):
+        windows = _load_windows()
+        windows[session_id] = window
+        _save_windows(windows)
+
+
+def _release_window(session_id: str) -> None:
+    windows = _load_windows()
+    if windows.pop(session_id, None) is not None:
+        _save_windows(windows)
+
+
+def focus_ok(cfg: dict[str, Any]) -> bool:
+    """True if the listener should be active given the currently-focused window."""
+    listen_cfg = cfg["listen"]
+    if not listen_cfg.get("focus_only", True):
+        return True
+    active = _active_window()
+    if active is None:  # can't detect focus (no hyprctl) — don't block
+        return True
+    match = (listen_cfg.get("focus_match") or "").strip()
+    if match:
+        pattern = re.compile(match, re.IGNORECASE)
+        return bool(pattern.search(active["class"]) or pattern.search(active["title"]))
+    addresses = {w.get("address") for w in _load_windows().values() if w.get("address")}
+    if not addresses:  # nothing captured to gate against — don't block
+        return True
+    return active["address"] in addresses
+
+
 def ensure(session_id: str, cfg: dict[str, Any]) -> None:
     """A Claude session started: register it and start the listener if needed."""
     if not cfg.get("listen", {}).get("enabled", False):
@@ -127,6 +196,7 @@ def ensure(session_id: str, cfg: dict[str, Any]) -> None:
     sessions = _sessions()
     sessions.add(session_id)
     _write_sessions(sessions)
+    _capture_window(session_id)  # remember the Claude terminal to gate on focus
     if not is_listening():
         _spawn_listener()
 
@@ -136,6 +206,7 @@ def release(session_id: str) -> None:
     sessions = _sessions()
     sessions.discard(session_id)
     _write_sessions(sessions)
+    _release_window(session_id)
     if not sessions:
         stop()
 
@@ -253,6 +324,7 @@ def run(cfg: dict[str, Any] | None = None) -> int:
         int(lc["max_utterance_seconds"]) * 1000,
     )
     guard = lc.get("post_speak_guard_ms", 700) / 1000
+    focus_poll = lc.get("focus_poll_ms", 250) / 1000
 
     paths.ensure(paths.runtime_dir())
     paths.listener_pid_file().write_text(str(os.getpid()))
@@ -260,16 +332,27 @@ def run(cfg: dict[str, Any] | None = None) -> int:
     signal.signal(signal.SIGTERM, lambda *_: stop_requested.__setitem__("v", True))
     proc = subprocess.Popen(_audio_command(), stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
     last_speak = 0.0
+    last_focus_check = 0.0
+    focused = True
     try:
         for frame in _frames(proc):
             if stop_requested["v"]:
                 break
-            # Anti-feedback: don't listen to the Dot, or its echo tail.
-            if paths.speaking_marker().exists():
-                last_speak = time.monotonic()
+            now = time.monotonic()
+            # Only listen while the Claude window is focused (throttled check), so
+            # the mic ignores YouTube, calls, and other apps.
+            if now - last_focus_check >= focus_poll:
+                focused = focus_ok(cfg)
+                last_focus_check = now
+            if not focused:
                 endpointer.reset()
                 continue
-            if time.monotonic() - last_speak < guard:
+            # Anti-feedback: don't listen to the Dot, or its echo tail.
+            if paths.speaking_marker().exists():
+                last_speak = now
+                endpointer.reset()
+                continue
+            if now - last_speak < guard:
                 endpointer.reset()
                 continue
             utterance = endpointer.process(frame, vad.is_speech(frame, RATE))
