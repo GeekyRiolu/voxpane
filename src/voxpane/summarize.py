@@ -22,6 +22,31 @@ from __future__ import annotations
 from typing import Any
 
 
+def facts_sentence(facts: dict[str, Any], project: str | None = None) -> str:
+    """A deterministic factual summary from ledger facts (M6).
+
+    M7's :func:`summarize` layers the optional LLM clause and speech
+    post-processing on top; this is the reliable, network-free floor.
+    """
+    where = f" in {project}" if project else ""
+    n_files = facts.get("n_files", 0)
+    if n_files:
+        head = f"{n_files} file{'s' if n_files != 1 else ''} changed{where}."
+    else:
+        n_cmd = facts.get("n_commands", 0)
+        if n_cmd:
+            head = f"Ran {n_cmd} command{'s' if n_cmd != 1 else ''}{where}."
+        else:
+            head = f"No file changes{where}."
+    if facts.get("tests_ran"):
+        failed = facts.get("tests_failed", 0)
+        if failed:
+            head += f" {failed} test{'s' if failed != 1 else ''} failing."
+        else:
+            head += " Tests ran clean."
+    return head
+
+
 def summarize(facts: dict[str, Any], last_message: str, cfg: dict[str, Any]) -> str:
     """Produce the final spoken string per ``summary.mode``, already speech-safe
     and capped at ``speak.max_chars``."""

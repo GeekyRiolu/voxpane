@@ -50,7 +50,10 @@ def _handle_request(req: dict[str, Any], transcribe_fn: TranscribeFn) -> dict[st
 
 def _serve(server: socket.socket, transcribe_fn: TranscribeFn) -> None:
     while True:
-        conn, _ = server.accept()
+        try:
+            conn, _ = server.accept()
+        except OSError:
+            return  # listening socket closed — stop serving
         with conn:
             line = _recv_line(conn)
             if not line:

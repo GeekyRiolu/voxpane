@@ -48,6 +48,8 @@ packages = ["src/voxpane"]
 [tool.hatch.build.targets.wheel.force-include]
 "config/config.default.toml" = "voxpane/data/config.default.toml"
 "config/commands.default.toml" = "voxpane/data/commands.default.toml"
+"hooks/voxpane-post-tool.sh" = "voxpane/data/hooks/voxpane-post-tool.sh"
+"hooks/voxpane-stop.sh" = "voxpane/data/hooks/voxpane-stop.sh"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
