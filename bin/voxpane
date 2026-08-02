@@ -1,0 +1,17 @@
+#!/usr/bin/env python3
+"""Run voxpane straight from a clone, without installing.
+
+Used by install.sh before the package is on PATH, and handy while hacking. Once
+installed (`pip install .` / `uv tool install .`), prefer the `voxpane` command
+on PATH — it is the same entry point.
+"""
+
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
+
+from voxpane.cli import main  # noqa: E402
+
+if __name__ == "__main__":
+    raise SystemExit(main())

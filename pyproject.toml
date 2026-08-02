@@ -1,0 +1,59 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "voxpane"
+version = "0.1.0"
+description = "Talk to Claude Code, and have your Echo Dot tell you what it did."
+readme = "README.md"
+requires-python = ">=3.11"
+license = "GPL-3.0-or-later"
+license-files = ["LICENSE"]
+authors = [{ name = "Rishabh Sharma" }]
+keywords = [
+    "claude-code", "whisper", "speech-to-text", "tts", "voice-assistant",
+    "wayland", "hyprland", "tmux", "alexa", "push-to-talk",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3 :: Only",
+    "Topic :: Multimedia :: Sound/Audio :: Speech",
+    "Topic :: Utilities",
+]
+# Core is stdlib-only (tomllib ships with Python >= 3.11). Heavy pieces are extras.
+dependencies = []
+
+[project.optional-dependencies]
+daemon = ["faster-whisper>=1.0"]   # M5: resident STT model
+dev = ["pytest>=8", "pytest-cov", "ruff>=0.6"]
+
+[project.scripts]
+voxpane = "voxpane.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/GeekyRiolu/voxpane"
+Repository = "https://github.com/GeekyRiolu/voxpane"
+Issues = "https://github.com/GeekyRiolu/voxpane/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/voxpane"]
+
+# Ship the config defaults inside the wheel so config.py can find them after a
+# plain `pip install` (config.py looks under <package>/data/).
+[tool.hatch.build.targets.wheel.force-include]
+"config/config.default.toml" = "voxpane/data/config.default.toml"
+"config/commands.default.toml" = "voxpane/data/commands.default.toml"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src", "tests"]
