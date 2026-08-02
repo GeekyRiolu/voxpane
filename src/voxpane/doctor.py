@@ -40,6 +40,7 @@ class Check:
     ok: bool
     detail: str
     hint: str = ""
+    soft: bool = False  # advisory (e.g. optional Echo backends) — doesn't fail doctor
 
 
 def _bin(name: str, hint: str) -> Check:
@@ -110,6 +111,43 @@ def _default_source() -> Check:
     )
 
 
+def _alexa_check(cfg: dict[str, Any]) -> Check:
+    if "alexa" not in cfg["speak"]["backends"]:
+        return Check("alexa", True, "not in speak.backends — skipping")
+    command = cfg["speak"]["alexa"].get("command", "alexa")
+    if not shutil.which(command):
+        return Check(
+            "alexa", False, f"{command} not found",
+            "uv tool install alexa-cli, then `alexa login`", soft=True,
+        )
+    try:
+        result = subprocess.run([command, "devices"], capture_output=True, text=True, timeout=6)
+    except (OSError, subprocess.SubprocessError) as exc:
+        return Check("alexa", False, str(exc), "check alexa-cli auth", soft=True)
+    if result.returncode != 0:
+        return Check("alexa", False, "devices call failed", "run `alexa login`", soft=True)
+    return Check("alexa", True, "authed; devices reachable")
+
+
+def _bluez_check(cfg: dict[str, Any]) -> Check:
+    if "bluetooth" not in cfg["speak"]["backends"]:
+        return Check("bluez sink", True, "not in speak.backends — skipping")
+    if not shutil.which("pactl"):
+        return Check("bluez sink", True, "pactl absent — skipping")
+    try:
+        result = subprocess.run(
+            ["pactl", "list", "short", "sinks"], capture_output=True, text=True, timeout=5
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        return Check("bluez sink", False, str(exc), "", soft=True)
+    if "bluez_output." in result.stdout:
+        return Check("bluez sink", True, "bluez sink present")
+    return Check(
+        "bluez sink", False, "no bluez_output.* sink",
+        "pair & connect the Dot (docs/INSTALL.md §5)", soft=True,
+    )
+
+
 def _tmux_target(cfg: dict[str, Any]) -> Check:
     if cfg["delivery"]["mode"] != "tmux":
         return Check("tmux target", True, "delivery mode is not tmux — skipping")
@@ -139,6 +177,8 @@ def run_checks(cfg: dict[str, Any] | None = None) -> list[Check]:
     checks.append(_default_source())
     checks.append(_runtime_dir_writable())
     checks.append(_tmux_target(cfg))
+    checks.append(_alexa_check(cfg))
+    checks.append(_bluez_check(cfg))
     return checks
 
 
@@ -146,7 +186,7 @@ def render(checks: list[Check]) -> str:
     width = max(len(c.name) for c in checks)
     lines = []
     for c in checks:
-        mark = "✓" if c.ok else "✗"
+        mark = "✓" if c.ok else ("!" if c.soft else "✗")
         row = f"  {mark}  {c.name.ljust(width)}  {c.detail}"
         if not c.ok and c.hint:
             row += f"\n       ↳ {c.hint}"
@@ -158,10 +198,14 @@ def main(cfg: dict[str, Any] | None = None, printer: Callable[[str], None] = pri
     checks = run_checks(cfg)
     printer("voxpane doctor\n")
     printer(render(checks))
-    failed = [c for c in checks if not c.ok]
     printer("")
-    if failed:
-        printer(f"{len(failed)} check(s) failed. See hints above.")
+    hard = [c for c in checks if not c.ok and not c.soft]
+    soft = [c for c in checks if not c.ok and c.soft]
+    if hard:
+        printer(f"{len(hard)} check(s) failed. See hints above.")
         return 1
+    if soft:
+        printer(f"All required checks passed ({len(soft)} advisory — outbound/Echo).")
+        return 0
     printer("All checks passed.")
     return 0

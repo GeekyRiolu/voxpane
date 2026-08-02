@@ -256,7 +256,7 @@ def _speak_from_hook(payload: dict, cfg: dict) -> int:
     import time
     from datetime import datetime
 
-    from . import gate, ledger, notify, summarize
+    from . import gate, ledger, speakers, summarize
 
     session = payload.get("session_id", "default")
     turn_facts = ledger.facts(ledger.read(session))
@@ -278,7 +278,8 @@ def _speak_from_hook(payload: dict, cfg: dict) -> int:
     sentence = summarize.summarize(
         turn_facts, last_message, cfg, project=_project_name(payload, cfg)
     )
-    notify.notify("voxpane", sentence, icon="audio-speakers")  # M6: notify only (M8 adds Echo)
+    backend = speakers.speak_with_fallback(sentence, cfg)
+    _log(f"spoke via {backend}: {sentence}")
     ledger.truncate(session)
     print(sentence)
     return 0
@@ -296,7 +297,7 @@ def _read_stdin_json() -> dict:
 
 
 def _cmd_speak(args) -> int:
-    from . import config, notify
+    from . import config, speakers
 
     cfg = config.load()
     if not cfg["speak"]["enabled"]:
@@ -306,8 +307,8 @@ def _cmd_speak(args) -> int:
     if not args.text:
         print("voxpane speak: provide text, or --from-hook", file=sys.stderr)
         return 2
-    notify.notify("voxpane", args.text[: cfg["speak"]["max_chars"]], icon="audio-speakers")
-    print(args.text)
+    backend = speakers.speak_with_fallback(args.text[: cfg["speak"]["max_chars"]], cfg)
+    print(f"[{backend}] {args.text}")
     return 0
 
 

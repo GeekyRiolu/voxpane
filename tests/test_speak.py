@@ -19,7 +19,12 @@ def _iso(tmp_path, monkeypatch):
     cfg_dir = tmp_path / "voxpane"
     cfg_dir.mkdir(parents=True, exist_ok=True)
     (cfg_dir / "config.toml").write_text(
-        '[speak.gate]\nquiet_hours = ""\n\n[summary]\nmode = "facts"\n'
+        '[speak]\n'
+        'backends = ["notify"]\n\n'
+        '[speak.gate]\n'
+        'quiet_hours = ""\n\n'
+        '[summary]\n'
+        'mode = "facts"\n'
     )
 
     spoken: list[tuple[str, str]] = []

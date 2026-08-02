@@ -8,14 +8,41 @@ through. ``say`` = no chime, ``announce`` = chime.
 
 from __future__ import annotations
 
-from .base import Speaker
+import shutil
+import subprocess
+
+from .base import Speaker, SpeakerError
 
 
 class AlexaSpeaker(Speaker):
     name = "alexa"
 
+    def _conf(self) -> dict:
+        return self.cfg["speak"]["alexa"]
+
     def available(self) -> bool:
-        raise NotImplementedError("AlexaSpeaker.available — milestone M8")
+        command = self._conf().get("command", "alexa")
+        if not shutil.which(command):
+            return False
+        try:  # `alexa devices` returns 0 only when authed and online
+            result = subprocess.run(
+                [command, "devices"], capture_output=True, text=True, timeout=6
+            )
+        except (OSError, subprocess.SubprocessError):
+            return False
+        return result.returncode == 0
 
     def speak(self, text: str) -> None:
-        raise NotImplementedError("AlexaSpeaker.speak — milestone M8")
+        conf = self._conf()
+        command = conf.get("command", "alexa")
+        if not shutil.which(command):
+            raise SpeakerError("alexa CLI not found")
+        args = [command, conf.get("mode", "say"), text]
+        if conf.get("device"):
+            args += ["--device", conf["device"]]
+        try:
+            result = subprocess.run(args, capture_output=True, text=True, timeout=20)
+        except (OSError, subprocess.SubprocessError) as exc:
+            raise SpeakerError(f"alexa: {exc}") from exc
+        if result.returncode != 0:
+            raise SpeakerError(f"alexa: {result.stderr.strip() or result.returncode}")
