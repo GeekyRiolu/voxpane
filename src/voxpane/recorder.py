@@ -60,7 +60,9 @@ def _pid_alive(pid: int) -> bool:
 def _pgrep_pw_record() -> bool:
     if not shutil.which("pgrep"):
         return False
-    return subprocess.run(["pgrep", "-f", "pw-record"], capture_output=True).returncode == 0
+    # Match the process NAME exactly (-x), not the full cmdline (-f): -f would
+    # false-positive on any process whose args merely contain "pw-record".
+    return subprocess.run(["pgrep", "-x", "pw-record"], capture_output=True).returncode == 0
 
 
 def is_recording() -> bool:
