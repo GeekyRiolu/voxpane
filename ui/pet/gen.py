@@ -9,7 +9,11 @@ grids below (or drop your own PNG/GIF/SVG sprites into ~/.config/voxpane/pet/) t
 change the critter.
 """
 
+import shutil
+import subprocess
 from pathlib import Path
+
+SCALE = 11  # upscale factor for the PNGs (nearest-neighbour -> crisp pixels)
 
 COLORS = {
     "G": "#6fe06f",  # body
@@ -111,12 +115,31 @@ def to_svg(grid: list[str]) -> str:
     )
 
 
+def _render_png(svg: Path, png: Path, w: int, h: int) -> bool:
+    """Render a crisp (nearest-neighbour) PNG. Many GTK setups lack the SVG
+    pixbuf loader, so eww needs PNGs. Uses rsvg-convert + magick if present."""
+    if not (shutil.which("rsvg-convert") and shutil.which("magick")):
+        return False
+    tiny = png.with_suffix(".tiny.png")
+    try:
+        subprocess.run(["rsvg-convert", "-w", str(w), "-h", str(h), str(svg), "-o", str(tiny)], check=True)
+        subprocess.run(["magick", str(tiny), "-sample", f"{w * SCALE}x{h * SCALE}", str(png)], check=True)
+    except (OSError, subprocess.CalledProcessError):
+        return False
+    finally:
+        tiny.unlink(missing_ok=True)
+    return True
+
+
 def main() -> None:
     out = Path(__file__).resolve().parents[1] / "eww" / "pet"
     out.mkdir(parents=True, exist_ok=True)
     for name, grid in PETS.items():
-        (out / f"{name}.svg").write_text(to_svg(grid))
-        print("wrote", out / f"{name}.svg")
+        svg = out / f"{name}.svg"
+        svg.write_text(to_svg(grid))
+        w = max(len(r) for r in grid)
+        rendered = _render_png(svg, out / f"{name}.png", w, len(grid))
+        print("wrote", svg, "+ png" if rendered else "(no PNG — install rsvg-convert + imagemagick)")
 
 
 if __name__ == "__main__":

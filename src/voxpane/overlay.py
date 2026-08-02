@@ -72,7 +72,8 @@ def sprite_path(state: str) -> str:
                 return str(override)
     for base in _shipped_pet_dirs():
         for name in candidates:
-            shipped = base / f"{name}.svg"
-            if shipped.is_file():
-                return str(shipped)
+            for ext in (".png", ".svg"):  # PNG first: many GTK setups can't load SVG
+                shipped = base / f"{name}{ext}"
+                if shipped.is_file():
+                    return str(shipped)
     return ""

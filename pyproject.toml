@@ -60,6 +60,10 @@ packages = ["src/voxpane"]
 "ui/eww/pet/listening.svg" = "voxpane/data/ui/eww/pet/listening.svg"
 "ui/eww/pet/thinking.svg" = "voxpane/data/ui/eww/pet/thinking.svg"
 "ui/eww/pet/speaking.svg" = "voxpane/data/ui/eww/pet/speaking.svg"
+"ui/eww/pet/idle.png" = "voxpane/data/ui/eww/pet/idle.png"
+"ui/eww/pet/listening.png" = "voxpane/data/ui/eww/pet/listening.png"
+"ui/eww/pet/thinking.png" = "voxpane/data/ui/eww/pet/thinking.png"
+"ui/eww/pet/speaking.png" = "voxpane/data/ui/eww/pet/speaking.png"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

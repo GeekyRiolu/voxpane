@@ -41,9 +41,9 @@ def test_clear():
     assert overlay.read_state()["state"] == "idle"
 
 
-def test_sprite_path_returns_shipped_svg():
+def test_sprite_path_returns_shipped_sprite():
     path = overlay.sprite_path("listening")
-    assert path.endswith("listening.svg")
+    assert path.endswith(("listening.png", "listening.svg"))
     assert Path(path).is_file()
 
 
@@ -57,4 +57,4 @@ def test_sprite_path_prefers_user_override(tmp_path, monkeypatch):
 
 def test_sprite_path_falls_back_to_idle(tmp_path, monkeypatch):
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))  # no overrides
-    assert overlay.sprite_path("nonsense").endswith("idle.svg")
+    assert overlay.sprite_path("nonsense").endswith(("idle.png", "idle.svg"))
