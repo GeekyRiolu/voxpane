@@ -1,20 +1,15 @@
-;; voxpane on-screen overlay for eww (ElKowars wacky widgets).
-;; Launch it with:  voxpane overlay      (stop:  voxpane overlay stop)
+;; voxpane on-screen overlay for eww. Launch:  voxpane overlay   (stop: voxpane overlay stop)
 ;;
-;; It polls `voxpane status` (JSON: {state, class, detail, tooltip}) 5×/sec and
-;; shows a Siri-style pill at bottom-centre while voxpane is active, with the live
-;; transcript. eww syntax varies by version — if it doesn't render, adjust the jq
-;; calls / geometry; the state it needs is all in `voxpane status`.
+;; Uses per-field polls (plain strings) so it does NOT depend on eww parsing JSON.
+;; If it still won't show, bump the geometry or drop the revealer (see README).
 
-(defpoll vox :interval "200ms"
-             :initial '{"state":"idle","detail":"","class":"idle"}'
-             "voxpane status")
+(defpoll vstate :interval "200ms" :initial "idle" "voxpane status --field state")
+(defpoll vtext  :interval "200ms" :initial ""     "voxpane status --field detail")
 
 (defwidget vox-pill []
-  (box :class "vox-pill vox-${vox.state}" :space-evenly false :spacing 8
+  (box :class "vox-pill vox-${vstate}" :space-evenly false :spacing 8
     (label :class "vox-dot" :text "●")
-    (label :class "vox-text" :limit-width 64 :show-truncated true
-           :text {vox.detail != "" ? vox.detail : vox.tooltip})))
+    (label :class "vox-text" :limit-width 64 :text {vtext != "" ? vtext : vstate})))
 
 (defwindow voxpane
   :monitor 0
@@ -22,5 +17,5 @@
   :stacking "overlay"
   :exclusive false
   :focusable false
-  (revealer :transition "slideup" :duration "220ms" :reveal {vox.state != "idle"}
+  (revealer :transition "slideup" :duration "200ms" :reveal {vstate != "idle"}
     (vox-pill)))

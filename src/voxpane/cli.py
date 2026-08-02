@@ -53,7 +53,11 @@ def build_parser() -> argparse.ArgumentParser:
     vocab = sub.add_parser("vocab", help="build a repo vocabulary prompt for whisper")
     vocab.add_argument("--from-repo", action="store_true")
 
-    sub.add_parser("status", help="print recording/speaking state as waybar JSON")
+    status = sub.add_parser("status", help="print recording/speaking state as waybar JSON")
+    status.add_argument(
+        "--field", choices=["state", "detail", "class", "text", "tooltip"],
+        help="print just one field as plain text (for the eww overlay)",
+    )
     ovl = sub.add_parser("overlay", help="show the Siri-style on-screen overlay (eww)")
     ovl.add_argument("action", nargs="?", choices=["start", "stop"], default="start")
     chime = sub.add_parser("chime", help="alert on the Dot (Notification hook)")
@@ -412,13 +416,17 @@ def _cmd_status(args) -> int:
         elif paths.speaking_marker().exists():
             state = "speaking"
     icon, label = overlay.STATES.get(state, ("", "idle"))
-    print(json.dumps({
+    fields = {
         "text": icon,
         "class": state,
         "state": state,
         "detail": detail,
         "tooltip": f"voxpane: {label}" + (f" — {detail}" if detail else ""),
-    }))
+    }
+    if getattr(args, "field", None):
+        print(fields.get(args.field, ""))
+    else:
+        print(json.dumps(fields))
     return 0
 
 

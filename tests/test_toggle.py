@@ -75,3 +75,11 @@ def test_status_reflects_overlay_state(monkeypatch, capsys):
     assert cli.main(["status"]) == 0
     out = json.loads(capsys.readouterr().out)
     assert out["state"] == "listening" and out["detail"] == "hi there"
+
+
+def test_status_field_prints_plain_text(monkeypatch, capsys):
+    from voxpane import overlay
+    monkeypatch.setattr(recorder, "is_recording", lambda: False)
+    monkeypatch.setattr(overlay, "read_state", lambda: {"state": "thinking", "text": "hello"})
+    assert cli.main(["status", "--field", "detail"]) == 0
+    assert capsys.readouterr().out.strip() == "hello"
