@@ -247,10 +247,14 @@ def run(cfg: dict[str, Any] | None = None) -> int:
 
     paths.ensure(paths.runtime_dir())
     paths.listener_pid_file().write_text(str(os.getpid()))
+    stop_requested = {"v": False}
+    signal.signal(signal.SIGTERM, lambda *_: stop_requested.__setitem__("v", True))
     proc = subprocess.Popen(_audio_command(), stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
     last_speak = 0.0
     try:
         for frame in _frames(proc):
+            if stop_requested["v"]:
+                break
             # Anti-feedback: don't listen to the Dot, or its echo tail.
             if paths.speaking_marker().exists():
                 last_speak = time.monotonic()
