@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 from voxpane import config, listen
 
 
@@ -130,3 +132,46 @@ def test_focus_match_regex_override(monkeypatch):
     assert listen.focus_ok(cfg) is True
     monkeypatch.setattr(listen, "_active_window", lambda: browser)
     assert listen.focus_ok(cfg) is False
+
+
+# --- playback gate: pause the mic while other apps play audio ---
+
+def test_media_playing_true_when_uncorked(monkeypatch):
+    monkeypatch.setattr(listen.shutil, "which", lambda name: "/usr/bin/pactl")
+    out = SimpleNamespace(returncode=0, stdout="Sink Input #1\n\tCorked: no\n")
+    monkeypatch.setattr(listen.subprocess, "run", lambda *a, **k: out)
+    assert listen._media_playing() is True
+
+
+def test_media_playing_false_when_all_corked(monkeypatch):
+    monkeypatch.setattr(listen.shutil, "which", lambda name: "/usr/bin/pactl")
+    out = SimpleNamespace(returncode=0, stdout="Sink Input #1\n\tCorked: yes\n")
+    monkeypatch.setattr(listen.subprocess, "run", lambda *a, **k: out)
+    assert listen._media_playing() is False
+
+
+def test_media_playing_true_when_sink_running(monkeypatch):
+    monkeypatch.setattr(listen.shutil, "which", lambda name: "/usr/bin/pactl")
+    out = SimpleNamespace(returncode=0, stdout="Sink #1\n\tState: RUNNING\n")
+    monkeypatch.setattr(listen.subprocess, "run", lambda *a, **k: out)
+    assert listen._media_playing() is True
+
+
+def test_media_playing_false_without_pactl(monkeypatch):
+    monkeypatch.setattr(listen.shutil, "which", lambda name: None)
+    assert listen._media_playing() is False
+
+
+# --- echo-cancel: capture from a non-default source ---
+
+def test_audio_command_targets_configured_source(monkeypatch):
+    monkeypatch.setattr(listen.shutil, "which", lambda name: "/usr/bin/pw-cat")
+    cfg = config.defaults()
+    cfg["audio"]["source"] = "echocancel_source"
+    cmd = listen._audio_command(cfg)
+    assert "--target" in cmd and "echocancel_source" in cmd
+
+
+def test_audio_command_no_target_for_default(monkeypatch):
+    monkeypatch.setattr(listen.shutil, "which", lambda name: "/usr/bin/pw-cat")
+    assert "--target" not in listen._audio_command(config.defaults())

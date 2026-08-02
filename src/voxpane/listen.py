@@ -244,13 +244,37 @@ def _spawn_listener() -> None:
 
 # ---------------------------------------------------------------- the live loop
 
-def _audio_command() -> list[str]:
-    import shutil
-
+def _audio_command(cfg: dict[str, Any]) -> list[str]:
+    # Capture from audio.source; point it at a PipeWire echo-cancel source to strip
+    # speaker output (YouTube, the Dot) from the mic entirely.
+    source = str(cfg.get("audio", {}).get("source", "default"))
     if shutil.which("pw-cat"):
-        return ["pw-cat", "--record", "--rate", str(RATE), "--channels", "1",
-                "--format", "s16", "--raw", "-"]
-    return ["parec", f"--rate={RATE}", "--channels=1", "--format=s16le"]
+        cmd = ["pw-cat", "--record", "--rate", str(RATE), "--channels", "1",
+               "--format", "s16", "--raw", "-"]
+        if source and source != "default":
+            cmd += ["--target", source]
+        return cmd
+    cmd = ["parec", f"--rate={RATE}", "--channels=1", "--format=s16le"]
+    if source and source != "default":
+        cmd += [f"--device={source}"]
+    return cmd
+
+
+def _media_playing() -> bool:
+    """True if audio is actively playing — a RUNNING sink or an uncorked
+    sink-input (e.g. a YouTube video). Lets the listener ignore the mic then."""
+    if not shutil.which("pactl"):
+        return False
+    try:
+        sinks = subprocess.run(
+            ["pactl", "list", "sinks"], capture_output=True, text=True, timeout=2
+        )
+        inputs = subprocess.run(
+            ["pactl", "list", "sink-inputs"], capture_output=True, text=True, timeout=2
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return "State: RUNNING" in sinks.stdout or "Corked: no" in inputs.stdout
 
 
 def _frames(proc: subprocess.Popen) -> Iterator[bytes]:
@@ -324,27 +348,28 @@ def run(cfg: dict[str, Any] | None = None) -> int:
         int(lc["max_utterance_seconds"]) * 1000,
     )
     guard = lc.get("post_speak_guard_ms", 700) / 1000
-    focus_poll = lc.get("focus_poll_ms", 250) / 1000
+    poll = lc.get("focus_poll_ms", 250) / 1000
+    pause_on_playback = lc.get("pause_on_playback", True)
 
     paths.ensure(paths.runtime_dir())
     paths.listener_pid_file().write_text(str(os.getpid()))
     stop_requested = {"v": False}
     signal.signal(signal.SIGTERM, lambda *_: stop_requested.__setitem__("v", True))
-    proc = subprocess.Popen(_audio_command(), stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    proc = subprocess.Popen(_audio_command(cfg), stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
     last_speak = 0.0
-    last_focus_check = 0.0
-    focused = True
+    last_check = 0.0
+    active = True
     try:
         for frame in _frames(proc):
             if stop_requested["v"]:
                 break
             now = time.monotonic()
-            # Only listen while the Claude window is focused (throttled check), so
-            # the mic ignores YouTube, calls, and other apps.
-            if now - last_focus_check >= focus_poll:
-                focused = focus_ok(cfg)
-                last_focus_check = now
-            if not focused:
+            # Listen only when the Claude window is focused AND nothing else is
+            # playing audio (throttled) — so the mic ignores YouTube, calls, etc.
+            if now - last_check >= poll:
+                active = focus_ok(cfg) and not (pause_on_playback and _media_playing())
+                last_check = now
+            if not active:
                 endpointer.reset()
                 continue
             # Anti-feedback: don't listen to the Dot, or its echo tail.

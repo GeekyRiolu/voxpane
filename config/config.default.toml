@@ -5,7 +5,8 @@
 # keys it wants to override; everything else falls back to the values here.
 
 [audio]
-source = "default"
+source = "default"             # mic node; set to a PipeWire echo-cancel source to
+                               # strip speaker audio from the mic (docs/INSTALL.md §6)
 rate = 16000
 max_seconds = 120
 
@@ -55,6 +56,10 @@ focus_only = true
 focus_poll_ms = 250             # how often to check the focused window
 focus_match = ""                # optional class/title regex override (empty = the
                                 # exact window Claude started in)
+pause_on_playback = true        # pause the mic while other apps play audio, so it
+                                # never transcribes a video/song — pause it to talk.
+                                # For talking OVER audio, use an echo-cancel source
+                                # (audio.source) instead; see docs/INSTALL.md §6.
 
 [speak]
 enabled = true

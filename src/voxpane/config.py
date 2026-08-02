@@ -50,6 +50,7 @@ _SAFETY_DEFAULTS: dict[str, Any] = {
         "focus_only": True,
         "focus_poll_ms": 250,
         "focus_match": "",
+        "pause_on_playback": True,
     },
     "speak": {
         "enabled": True,
