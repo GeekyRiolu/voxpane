@@ -54,6 +54,8 @@ packages = ["src/voxpane"]
 "hooks/voxpane-notification.sh" = "voxpane/data/hooks/voxpane-notification.sh"
 "hooks/voxpane-session-start.sh" = "voxpane/data/hooks/voxpane-session-start.sh"
 "hooks/voxpane-session-end.sh" = "voxpane/data/hooks/voxpane-session-end.sh"
+"ui/eww/eww.yuck" = "voxpane/data/ui/eww/eww.yuck"
+"ui/eww/eww.scss" = "voxpane/data/ui/eww/eww.scss"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

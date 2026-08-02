@@ -64,3 +64,14 @@ def test_status_reports_recording(monkeypatch, capsys):
     monkeypatch.setattr(recorder, "is_recording", lambda: True)
     assert cli.main(["status"]) == 0
     assert json.loads(capsys.readouterr().out)["class"] == "recording"
+
+
+def test_status_reflects_overlay_state(monkeypatch, capsys):
+    import json
+
+    from voxpane import overlay
+    monkeypatch.setattr(recorder, "is_recording", lambda: False)
+    monkeypatch.setattr(overlay, "read_state", lambda: {"state": "listening", "text": "hi there"})
+    assert cli.main(["status"]) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["state"] == "listening" and out["detail"] == "hi there"

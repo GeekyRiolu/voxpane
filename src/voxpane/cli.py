@@ -54,6 +54,8 @@ def build_parser() -> argparse.ArgumentParser:
     vocab.add_argument("--from-repo", action="store_true")
 
     sub.add_parser("status", help="print recording/speaking state as waybar JSON")
+    ovl = sub.add_parser("overlay", help="show the Siri-style on-screen overlay (eww)")
+    ovl.add_argument("action", nargs="?", choices=["start", "stop"], default="start")
     chime = sub.add_parser("chime", help="alert on the Dot (Notification hook)")
     chime.add_argument("text", nargs="?", default="Claude needs your input")
 
@@ -265,7 +267,7 @@ def _speak_from_hook(payload: dict, cfg: dict) -> int:
     import time
     from datetime import datetime
 
-    from . import gate, ledger, listen, speakers, summarize
+    from . import gate, ledger, listen, overlay, speakers, summarize
 
     session = payload.get("session_id", "default")
     turn_facts = ledger.facts(ledger.read(session))
@@ -304,7 +306,9 @@ def _speak_from_hook(payload: dict, cfg: dict) -> int:
     sentence = summarize.summarize(
         turn_facts, last_message, summary_cfg, project=_project_name(payload, cfg)
     )
+    overlay.set_state("speaking", sentence)
     backend = speakers.speak_with_fallback(sentence, cfg)
+    overlay.set_state("idle")
     _log(f"spoke via {backend}: {sentence}")
     ledger.truncate(session)
     print(sentence)
@@ -398,17 +402,57 @@ def _cmd_vocab(args) -> int:
 
 
 def _cmd_status(args) -> int:
-    from . import listen, recorder
+    from . import overlay, recorder
 
-    if recorder.is_recording():
-        state = {"text": "🎙", "class": "recording", "tooltip": "voxpane: recording"}
-    elif paths.speaking_marker().exists():
-        state = {"text": "🔊", "class": "speaking", "tooltip": "voxpane: speaking"}
-    elif listen.is_listening():
-        state = {"text": "👂", "class": "listening", "tooltip": "voxpane: listening"}
-    else:
-        state = {"text": "", "class": "idle", "tooltip": "voxpane: idle"}
-    print(json.dumps(state))
+    current = overlay.read_state()
+    state, detail = current["state"], current["text"]
+    if state == "idle":  # fall back to live signals if the overlay file is idle
+        if recorder.is_recording():
+            state = "recording"
+        elif paths.speaking_marker().exists():
+            state = "speaking"
+    icon, label = overlay.STATES.get(state, ("", "idle"))
+    print(json.dumps({
+        "text": icon,
+        "class": state,
+        "state": state,
+        "detail": detail,
+        "tooltip": f"voxpane: {label}" + (f" — {detail}" if detail else ""),
+    }))
+    return 0
+
+
+def _eww_config_dir() -> Path | None:
+    here = Path(__file__).resolve()
+    for candidate in (here.parents[2] / "ui" / "eww", here.parent / "data" / "ui" / "eww"):
+        if (candidate / "eww.yuck").is_file():
+            return candidate
+    return None
+
+
+def _cmd_overlay(args) -> int:
+    import shutil
+    import subprocess
+
+    if not shutil.which("eww"):
+        print(
+            "voxpane overlay: eww not found — install it (e.g. yay -S eww), or use "
+            "the waybar module (waybar/voxpane.jsonc).",
+            file=sys.stderr,
+        )
+        return 1
+    config_dir = _eww_config_dir()
+    if config_dir is None:
+        print("voxpane overlay: bundled eww config not found", file=sys.stderr)
+        return 1
+    eww = ["eww", "--config", str(config_dir)]
+    if args.action == "stop":
+        subprocess.run([*eww, "close", "voxpane"], capture_output=True)
+        print("voxpane overlay: closed")
+        return 0
+    subprocess.run([*eww, "daemon"], capture_output=True)
+    subprocess.run([*eww, "open", "voxpane"], capture_output=True)
+    print(f"voxpane overlay: open (eww, {config_dir}). Stop with: voxpane overlay stop")
     return 0
 
 
@@ -470,6 +514,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         "ledger": _cmd_ledger,
         "vocab": _cmd_vocab,
         "status": _cmd_status,
+        "overlay": _cmd_overlay,
         "chime": _cmd_chime,
         "hush": _cmd_hush,
         "listen": _cmd_listen,

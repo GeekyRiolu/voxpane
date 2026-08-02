@@ -177,6 +177,16 @@ auto-submits, so it sends whatever you say — set `enabled = false` to fall bac
 to push-to-talk, or `barge_in = true` to experiment with voice interruption
 (needs mic/speaker separation to be reliable).
 
+**Wake word (Alexa-style).** Set `[listen] wake_word = "voxpane"` and it listens
+everywhere but only acts on **"voxpane …"** — pausing media, then sending the rest
+to Claude (opening a session with `wake_open_command` if none is up). Whisper
+mangles odd words, so add the mis-hearings you see to `wake_aliases`.
+
+**On-screen overlay.** `voxpane overlay` shows a Siri-style pill at the bottom of
+the screen while it's listening/thinking/speaking (needs [eww](https://github.com/elkowar/eww);
+stop with `voxpane overlay stop`). It's driven by `voxpane status` JSON, so the
+[waybar module](waybar/voxpane.jsonc) reads the same state.
+
 ## Configuration
 
 `install.sh` seeds two files in `~/.config/voxpane/`:

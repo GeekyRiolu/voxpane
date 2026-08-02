@@ -381,7 +381,7 @@ def _wake_deliver(request: str, cfg: dict[str, Any]) -> None:
 def handle_utterance(pcm: bytes, cfg: dict[str, Any]) -> str | None:
     """Transcribe and act on one utterance. Returns the delivered text, or None."""
     from . import config as config_mod
-    from . import deliver, hush, postprocess, transcriber
+    from . import deliver, hush, overlay, postprocess, transcriber
 
     wav = paths.runtime_dir() / "listen-utt.wav"
     _pcm_to_wav(pcm, wav)
@@ -393,6 +393,7 @@ def handle_utterance(pcm: bytes, cfg: dict[str, Any]) -> str | None:
         _unlink(wav)
     if not text:
         return None
+    overlay.set_state("thinking", text)  # drive the on-screen indicator
 
     lc = cfg["listen"]
     wake = lc.get("wake_word", "").strip()
@@ -419,6 +420,7 @@ def handle_utterance(pcm: bytes, cfg: dict[str, Any]) -> str | None:
 
 def run(cfg: dict[str, Any] | None = None) -> int:
     from . import config as config_mod
+    from . import overlay
 
     try:
         import webrtcvad
@@ -452,6 +454,14 @@ def run(cfg: dict[str, Any] | None = None) -> int:
     last_speak = 0.0
     last_check = 0.0
     active = True
+    shown = ""
+
+    def _overlay(state: str) -> None:
+        nonlocal shown
+        if state != shown:
+            overlay.set_state(state)
+            shown = state
+
     try:
         for frame in _frames(proc):
             if stop_requested["v"]:
@@ -467,6 +477,7 @@ def run(cfg: dict[str, Any] | None = None) -> int:
                 )
                 last_check = now
             if not active:
+                _overlay("idle")
                 endpointer.reset()
                 continue
             # Anti-feedback: don't listen to the Dot, or its echo tail.
@@ -477,10 +488,14 @@ def run(cfg: dict[str, Any] | None = None) -> int:
             if now - last_speak < guard:
                 endpointer.reset()
                 continue
+            _overlay("listening")
             utterance = endpointer.process(frame, vad.is_speech(frame, RATE))
             if utterance is not None:
-                handle_utterance(utterance, cfg)
+                handle_utterance(utterance, cfg)  # sets "thinking" + the transcript
+                overlay.set_state("listening")
+                shown = "listening"
     finally:
         proc.terminate()
         _unlink(paths.listener_pid_file())
+        overlay.clear()
     return 0

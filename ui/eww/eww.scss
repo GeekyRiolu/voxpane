@@ -1,0 +1,33 @@
+/* voxpane overlay — a Siri/Claude-style pill. Tweak colours to taste. */
+
+.vox-pill {
+  background-color: rgba(18, 18, 26, 0.86);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 26px;
+  padding: 11px 22px;
+  margin: 10px;
+  box-shadow: 0 10px 34px rgba(0, 0, 0, 0.5);
+}
+
+.vox-dot {
+  font-size: 15px;
+  margin-right: 4px;
+}
+
+.vox-text {
+  color: #e8e8ee;
+  font-size: 15px;
+  font-weight: 500;
+}
+
+/* per-state accent + a soft pulse while listening */
+.vox-listening .vox-dot { color: #7aa2f7; animation: vox-pulse 1.4s ease-in-out infinite; }
+.vox-thinking  .vox-dot { color: #e0af68; animation: vox-pulse 0.9s ease-in-out infinite; }
+.vox-speaking  .vox-dot { color: #9ece6a; }
+.vox-recording .vox-dot { color: #f7768e; animation: vox-pulse 1.0s ease-in-out infinite; }
+
+@keyframes vox-pulse {
+  0%   { opacity: 0.35; }
+  50%  { opacity: 1.0; }
+  100% { opacity: 0.35; }
+}

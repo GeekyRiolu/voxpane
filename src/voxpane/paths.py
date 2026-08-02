@@ -113,6 +113,11 @@ def listen_windows_file() -> Path:
     return runtime_dir() / "listen-windows.json"
 
 
+def overlay_state_file() -> Path:
+    """Drives the on-screen Siri-style overlay: {state, text}."""
+    return runtime_dir() / "overlay.json"
+
+
 def ensure(directory: Path) -> Path:
     """Create ``directory`` (and parents) if missing, then return it."""
     directory.mkdir(parents=True, exist_ok=True)
