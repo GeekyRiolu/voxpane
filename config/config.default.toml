@@ -26,6 +26,7 @@ refactor, stdout, stderr, CLI, repo, commit, branch, merge conflict.
 mode = "tmux"                  # tmux | focus | clipboard
 tmux_target = "claude:0.0"
 auto_submit = false            # never true by default — you press Enter
+focus_paste_delay_ms = 80      # focus mode: wait before the paste chord
 
 [behavior]
 strip_filler = true

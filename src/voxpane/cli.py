@@ -144,23 +144,25 @@ def _stop_and_deliver(cfg) -> int:
     if not transcript:
         return fail("empty transcript")
 
-    copied = True
+    ok = True
     try:
-        deliver.to_clipboard(transcript)
+        status = deliver.deliver(transcript, cfg, submit=cfg["delivery"]["auto_submit"])
     except (RuntimeError, OSError) as exc:
-        copied = False
-        print(f"voxpane: clipboard failed: {exc}", file=sys.stderr)
+        ok = False
+        status = f"delivery failed: {exc}"
+        print(f"voxpane: {status}", file=sys.stderr)
 
     elapsed = time.monotonic() - t0
-    _log(f"stop->clipboard {elapsed:.2f}s {len(transcript)}chars copied={copied}")
+    _log(f"stop->deliver {elapsed:.2f}s {len(transcript)}chars {status}")
     notify.notify(
-        "📋  Copied" if copied else "⚠️  Not copied",
+        f"voxpane — {status}" if ok else "voxpane — delivery failed",
         _preview(transcript),
         replace_id=notify.RECORDING_ID,
         expire_ms=6000,
+        urgency="normal" if ok else "critical",
     )
     print(transcript)
-    print(f"\n[{'copied, ' if copied else 'NOT copied, '}{elapsed:.2f}s]", file=sys.stderr)
+    print(f"\n[{status}, {elapsed:.2f}s]", file=sys.stderr)
     return 0
 
 

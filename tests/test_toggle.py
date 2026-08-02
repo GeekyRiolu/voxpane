@@ -37,10 +37,14 @@ def test_toggle_stops_and_copies_when_recording(monkeypatch, tmp_path):
     wav.write_bytes(b"RIFF____WAVE")
     copied = {}
 
+    def fake_deliver(text, cfg, submit=False):
+        copied["text"] = text
+        return "copied to clipboard"
+
     monkeypatch.setattr(recorder, "is_recording", lambda: True)
     monkeypatch.setattr(recorder, "stop", lambda: wav)
     monkeypatch.setattr(transcriber, "transcribe_file", lambda w, c: "hello world")
-    monkeypatch.setattr(deliver, "to_clipboard", lambda t: copied.setdefault("text", t))
+    monkeypatch.setattr(deliver, "deliver", fake_deliver)
 
     assert cli.main(["toggle"]) == 0
     assert copied["text"] == "hello world"

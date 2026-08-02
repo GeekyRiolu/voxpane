@@ -28,7 +28,12 @@ _SAFETY_DEFAULTS: dict[str, Any] = {
         "threads": 0,
         "initial_prompt": "",
     },
-    "delivery": {"mode": "tmux", "tmux_target": "claude:0.0", "auto_submit": False},
+    "delivery": {
+        "mode": "tmux",
+        "tmux_target": "claude:0.0",
+        "auto_submit": False,
+        "focus_paste_delay_ms": 80,
+    },
     "behavior": {"strip_filler": True, "trailing_submit_phrase": "send it"},
     "speak": {
         "enabled": True,
