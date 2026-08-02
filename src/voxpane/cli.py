@@ -55,7 +55,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     status = sub.add_parser("status", help="print recording/speaking state as waybar JSON")
     status.add_argument(
-        "--field", choices=["state", "detail", "class", "text", "tooltip"],
+        "--field", choices=["state", "detail", "class", "text", "sprite", "tooltip"],
         help="print just one field as plain text (for the eww overlay)",
     )
     ovl = sub.add_parser("overlay", help="show the Siri-style on-screen overlay (eww)")
@@ -421,6 +421,7 @@ def _cmd_status(args) -> int:
         "class": state,
         "state": state,
         "detail": detail,
+        "sprite": overlay.sprite_path(state),
         "tooltip": f"voxpane: {label}" + (f" — {detail}" if detail else ""),
     }
     if getattr(args, "field", None):
@@ -453,18 +454,26 @@ def _cmd_overlay(args) -> int:
     if config_dir is None:
         print("voxpane overlay: bundled eww config not found", file=sys.stderr)
         return 1
+    import time
+
     eww = ["eww", "--config", str(config_dir)]
     if args.action == "stop":
         subprocess.run([*eww, "close", "voxpane"], capture_output=True)
+        subprocess.run([*eww, "kill"], capture_output=True)
         print("voxpane overlay: closed")
         return 0
-    # `eww open` auto-starts the daemon (backgrounded); do NOT run `eww daemon`,
-    # which blocks in the foreground when no daemon is running yet.
+    # `eww daemon` blocks in the foreground, so start it DETACHED, then open.
+    subprocess.Popen(
+        [*eww, "daemon"],
+        stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        start_new_session=True,
+    )
+    time.sleep(0.7)  # let the daemon bind its socket
     result = subprocess.run([*eww, "open", "voxpane"], capture_output=True, text=True)
     if result.returncode != 0:
         print(f"voxpane overlay: eww failed: {result.stderr.strip()}", file=sys.stderr)
         return 1
-    print("voxpane overlay: open. Stop with: voxpane overlay stop")
+    print("voxpane overlay: pet is out. Stop with: voxpane overlay stop")
     return 0
 
 

@@ -1,28 +1,24 @@
-/* voxpane overlay - a Siri/Claude-style pill. Tweak colours to taste. */
+/* voxpane pixel-pet overlay. The pet sprite is transparent; only the speech
+   bubble has a background. Tweak to taste. */
 
-.vox-pill {
-  background-color: rgba(18, 18, 26, 0.88);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 26px;
-  padding: 11px 22px;
-  margin: 10px;
+.vox-pet {
+  background-color: transparent;
 }
 
-.vox-dot {
-  font-size: 15px;
-  margin-right: 4px;
+.vox-sprite {
+  /* the pixel sprite; sized in eww.yuck via image-width/height */
 }
 
-.vox-text {
-  color: #e8e8ee;
-  font-size: 15px;
-  font-weight: 500;
+.vox-say {
+  background-color: rgba(18, 18, 26, 0.92);
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 11px;
+  padding: 5px 11px;
+  margin-bottom: 3px;
 }
 
-.vox-listening .vox-dot { color: #7aa2f7; }
-.vox-thinking  .vox-dot { color: #e0af68; }
-.vox-speaking  .vox-dot { color: #9ece6a; }
-.vox-recording .vox-dot { color: #f7768e; }
-
-/* hidden when nothing is happening (pill keeps its surface, just invisible) */
-.vox-idle { opacity: 0; }
+.vox-listening .vox-say { color: #a9c7ff; }
+.vox-thinking  .vox-say { color: #ffd79a; }
+.vox-speaking  .vox-say { color: #b9f0a0; }

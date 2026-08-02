@@ -1,21 +1,23 @@
-;; voxpane on-screen overlay for eww. Launch:  voxpane overlay   (stop: voxpane overlay stop)
+;; voxpane pixel-pet overlay for eww. Launch: voxpane overlay  (stop: voxpane overlay stop)
 ;;
-;; Per-field polls (plain strings) so it does NOT depend on eww parsing JSON.
-;; No revealer: the pill always has a surface (reliable on Hyprland layer-shell)
-;; and is hidden when idle via opacity in eww.scss (.vox-idle).
+;; A little pixel critter that lives in the screen corner and reacts to voxpane:
+;; sleeping when idle, ears-up when listening, mouth open when speaking, plus a
+;; speech bubble with the transcript. Per-field polls (plain strings) so it does
+;; NOT depend on eww parsing JSON. Swap the art in ~/.config/voxpane/pet/.
 
-(defpoll vstate :interval "200ms" :initial "idle" "voxpane status --field state")
-(defpoll vtext  :interval "200ms" :initial ""     "voxpane status --field detail")
+(defpoll vstate  :interval "250ms" :initial "idle" "voxpane status --field state")
+(defpoll vsprite :interval "250ms" :initial ""     "voxpane status --field sprite")
+(defpoll vtext   :interval "350ms" :initial ""     "voxpane status --field detail")
 
-(defwidget vox-pill []
-  (box :class "vox-pill vox-${vstate}" :space-evenly false :spacing 8
-    (label :class "vox-dot" :text "●")
-    (label :class "vox-text" :limit-width 64 :text {vtext != "" ? vtext : vstate})))
+(defwidget vox-pet []
+  (box :class "vox-pet vox-${vstate}" :orientation "v" :space-evenly false :spacing 2 :halign "center"
+    (label :class "vox-say" :text vtext :limit-width 26 :wrap true :visible {vtext != ""})
+    (image :class "vox-sprite" :path vsprite :image-width 88 :image-height 78)))
 
 (defwindow voxpane
   :monitor 0
-  :geometry (geometry :y "48px" :anchor "bottom center")
+  :geometry (geometry :x "26px" :y "22px" :anchor "bottom right")
   :stacking "overlay"
   :exclusive false
   :focusable false
-  (vox-pill))
+  (vox-pet))

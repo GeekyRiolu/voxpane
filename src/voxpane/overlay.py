@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import time
+from pathlib import Path
 
 from . import paths
 
@@ -49,3 +50,29 @@ def read_state() -> dict:
 
 def clear() -> None:
     set_state("idle", "")
+
+
+def _shipped_pet_dirs() -> list[Path]:
+    here = Path(__file__).resolve()
+    return [here.parents[2] / "ui" / "eww" / "pet", here.parent / "data" / "ui" / "eww" / "pet"]
+
+
+def sprite_path(state: str) -> str:
+    """Absolute path to the pixel-pet sprite for ``state``.
+
+    Prefers a user override in ``~/.config/voxpane/pet/<state>.{gif,png,svg}``,
+    else the shipped SVG; falls back to the idle sprite for unknown states.
+    """
+    candidates = [state, "idle"]
+    user_dir = paths.config_dir() / "pet"
+    for name in candidates:
+        for ext in (".gif", ".png", ".svg"):
+            override = user_dir / f"{name}{ext}"
+            if override.is_file():
+                return str(override)
+    for base in _shipped_pet_dirs():
+        for name in candidates:
+            shipped = base / f"{name}.svg"
+            if shipped.is_file():
+                return str(shipped)
+    return ""

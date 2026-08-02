@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import time
+from pathlib import Path
 
 import pytest
 
@@ -38,3 +39,22 @@ def test_clear():
     overlay.set_state("thinking", "y")
     overlay.clear()
     assert overlay.read_state()["state"] == "idle"
+
+
+def test_sprite_path_returns_shipped_svg():
+    path = overlay.sprite_path("listening")
+    assert path.endswith("listening.svg")
+    assert Path(path).is_file()
+
+
+def test_sprite_path_prefers_user_override(tmp_path, monkeypatch):
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    pet_dir = tmp_path / "voxpane" / "pet"
+    pet_dir.mkdir(parents=True)
+    (pet_dir / "listening.png").write_bytes(b"\x89PNG")
+    assert overlay.sprite_path("listening") == str(pet_dir / "listening.png")
+
+
+def test_sprite_path_falls_back_to_idle(tmp_path, monkeypatch):
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))  # no overrides
+    assert overlay.sprite_path("nonsense").endswith("idle.svg")

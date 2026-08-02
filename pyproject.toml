@@ -56,6 +56,10 @@ packages = ["src/voxpane"]
 "hooks/voxpane-session-end.sh" = "voxpane/data/hooks/voxpane-session-end.sh"
 "ui/eww/eww.yuck" = "voxpane/data/ui/eww/eww.yuck"
 "ui/eww/eww.scss" = "voxpane/data/ui/eww/eww.scss"
+"ui/eww/pet/idle.svg" = "voxpane/data/ui/eww/pet/idle.svg"
+"ui/eww/pet/listening.svg" = "voxpane/data/ui/eww/pet/listening.svg"
+"ui/eww/pet/thinking.svg" = "voxpane/data/ui/eww/pet/thinking.svg"
+"ui/eww/pet/speaking.svg" = "voxpane/data/ui/eww/pet/speaking.svg"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
