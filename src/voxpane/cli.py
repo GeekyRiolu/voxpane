@@ -57,6 +57,15 @@ def build_parser() -> argparse.ArgumentParser:
     chime = sub.add_parser("chime", help="alert on the Dot (Notification hook)")
     chime.add_argument("text", nargs="?", default="Claude needs your input")
 
+    sub.add_parser("hush", help="stop the Dot speaking (bind to SUPER ALT S)")
+    lst = sub.add_parser("listen", help="hands-free VAD listen mode")
+    grp = lst.add_mutually_exclusive_group()
+    grp.add_argument("--run", action="store_true", help="run the listen loop (foreground)")
+    grp.add_argument("--ensure", action="store_true", help="register a session; start if needed")
+    grp.add_argument("--release", action="store_true", help="unregister a session; stop if last")
+    grp.add_argument("--stop", action="store_true", help="stop the listener now")
+    grp.add_argument("--status", action="store_true", help="print listening/idle")
+
     return parser
 
 
@@ -198,10 +207,9 @@ def _cmd_install_bindings() -> int:
         return 1
 
     if result.status == "already":
-        print(f"✓ voxpane binding already present in {result.path}")
+        print(f"✓ voxpane binds already present in {result.path}")
         return 0
-    print(f"✓ bound {bindings.MODS} {bindings.KEY} → {bindings.CMD}")
-    print(f"  in {result.path} ({result.kind})")
+    print(f"✓ installed binds ({', '.join(result.added)}) in {result.path} ({result.kind})")
     if result.backup:
         print(f"  backed up to {result.backup}")
     if result.status == "created" and not result.sourced:
@@ -257,19 +265,36 @@ def _speak_from_hook(payload: dict, cfg: dict) -> int:
     import time
     from datetime import datetime
 
-    from . import gate, ledger, speakers, summarize
+    from . import gate, ledger, listen, speakers, summarize
 
     session = payload.get("session_id", "default")
     turn_facts = ledger.facts(ledger.read(session))
     turn_seconds = (time.time() - turn_facts["first_ts"]) if turn_facts.get("first_ts") else 0.0
     last_message = _last_message(payload)
 
+    # Conversational mode (hands-free listening active): speak the response itself,
+    # a bare question from Claude is worth hearing, and replies can be quick — so
+    # relax the gate. Otherwise use the strict coding-assistant gate.
+    conversational = listen.is_listening() and cfg["listen"].get("conversational", True)
+    if conversational:
+        if not last_message.strip():
+            ledger.truncate(session)
+            return 0
+        gate_cfg = {**cfg["speak"]["gate"], "require_tool_use": False,
+                    "skip_if_question": False, "min_turn_seconds": 0}
+        has_tool_use = True
+        summary_cfg = {**cfg, "summary": {**cfg["summary"], "mode": "llm"}}
+    else:
+        gate_cfg = cfg["speak"]["gate"]
+        has_tool_use = turn_facts["n_tools"] > 0
+        summary_cfg = cfg
+
     speak, reason = gate.should_speak(
         turn_seconds=turn_seconds,
-        has_tool_use=turn_facts["n_tools"] > 0,
+        has_tool_use=has_tool_use,
         last_message=last_message,
         now=datetime.now().time(),
-        gate_cfg=cfg["speak"]["gate"],
+        gate_cfg=gate_cfg,
     )
     _log(f"speak gate {'PASS' if speak else 'skip'}: {reason} (turn {turn_seconds:.0f}s)")
     if not speak:
@@ -277,7 +302,7 @@ def _speak_from_hook(payload: dict, cfg: dict) -> int:
         return 0
 
     sentence = summarize.summarize(
-        turn_facts, last_message, cfg, project=_project_name(payload, cfg)
+        turn_facts, last_message, summary_cfg, project=_project_name(payload, cfg)
     )
     backend = speakers.speak_with_fallback(sentence, cfg)
     _log(f"spoke via {backend}: {sentence}")
@@ -373,12 +398,14 @@ def _cmd_vocab(args) -> int:
 
 
 def _cmd_status(args) -> int:
-    from . import recorder
+    from . import listen, recorder
 
     if recorder.is_recording():
         state = {"text": "🎙", "class": "recording", "tooltip": "voxpane: recording"}
     elif paths.speaking_marker().exists():
         state = {"text": "🔊", "class": "speaking", "tooltip": "voxpane: speaking"}
+    elif listen.is_listening():
+        state = {"text": "👂", "class": "listening", "tooltip": "voxpane: listening"}
     else:
         state = {"text": "", "class": "idle", "tooltip": "voxpane: idle"}
     print(json.dumps(state))
@@ -391,6 +418,33 @@ def _cmd_chime(args) -> int:
     cfg = config.load()
     if cfg["speak"]["enabled"]:
         speakers.speak_with_fallback(args.text, cfg)
+    return 0
+
+
+def _cmd_hush(args) -> int:
+    from . import hush
+
+    print("hushed" if hush.hush() else "nothing playing")
+    return 0
+
+
+def _cmd_listen(args) -> int:
+    from . import config, listen
+
+    cfg = config.load()
+    if args.run:
+        return listen.run(cfg)
+    if args.stop:
+        listen.stop()
+        return 0
+    if args.status:
+        print("listening" if listen.is_listening() else "idle")
+        return 0
+    session = _read_stdin_json().get("session_id", "default")
+    if args.release:
+        listen.release(session)
+    else:  # --ensure (the default; from the SessionStart hook)
+        listen.ensure(session, cfg)
     return 0
 
 
@@ -417,6 +471,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         "vocab": _cmd_vocab,
         "status": _cmd_status,
         "chime": _cmd_chime,
+        "hush": _cmd_hush,
+        "listen": _cmd_listen,
     }
     if cmd in simple:
         return simple[cmd]()

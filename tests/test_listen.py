@@ -51,3 +51,36 @@ def test_listen_defaults_present():
     listen_cfg = config.defaults()["listen"]
     assert listen_cfg["auto_submit"] is True
     assert listen_cfg["endpoint_silence_ms"] == 1500
+
+
+def test_session_refcount_starts_once_stops_last(tmp_path, monkeypatch):
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
+    calls = {"spawn": 0, "stop": 0}
+
+    def spawn():
+        calls["spawn"] += 1
+
+    def stop():
+        calls["stop"] += 1
+
+    monkeypatch.setattr(listen, "_spawn_listener", spawn)
+    monkeypatch.setattr(listen, "is_listening", lambda: calls["spawn"] > 0)
+    monkeypatch.setattr(listen, "stop", stop)
+    cfg = config.defaults()
+
+    listen.ensure("a", cfg)
+    listen.ensure("b", cfg)  # second session — listener already up
+    assert calls["spawn"] == 1
+
+    listen.release("a")  # still one session left
+    assert calls["stop"] == 0
+    listen.release("b")  # last one — stop
+    assert calls["stop"] == 1
+
+
+def test_ensure_noop_when_disabled(tmp_path, monkeypatch):
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
+    monkeypatch.setattr(listen, "_spawn_listener", lambda: (_ for _ in ()).throw(AssertionError()))
+    cfg = config.defaults()
+    cfg["listen"]["enabled"] = False
+    listen.ensure("a", cfg)  # must not spawn

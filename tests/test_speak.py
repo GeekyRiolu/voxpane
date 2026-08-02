@@ -25,6 +25,7 @@ def _iso(tmp_path, monkeypatch):
         'quiet_hours = ""\n\n'
         '[summary]\n'
         'mode = "facts"\n'
+        'llm_command = ""\n'
     )
 
     spoken: list[tuple[str, str]] = []
@@ -85,3 +86,14 @@ def test_silent_without_tool_use(_iso):
     rc = cli._speak_from_hook(payload, config.load())
     assert rc == 0
     assert _iso == []
+
+
+def test_conversational_mode_speaks_pure_qa(_iso, monkeypatch):
+    # When listening, a no-tool-use answer (and even a question) is spoken.
+    from voxpane import listen
+
+    monkeypatch.setattr(listen, "is_listening", lambda: True)
+    payload = {"session_id": "conv", "last_assistant_message": "The function parses the config."}
+    rc = cli._speak_from_hook(payload, config.load())
+    assert rc == 0
+    assert len(_iso) == 1  # spoke despite no tool use
