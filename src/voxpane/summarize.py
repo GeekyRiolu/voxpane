@@ -17,6 +17,7 @@ verbatim ("backtick backtick backtick python").
 
 from __future__ import annotations
 
+import os
 import re
 import shlex
 import subprocess
@@ -93,6 +94,9 @@ def _llm_clause(last_message: str, cfg: dict[str, Any]) -> str | None:
             capture_output=True,
             text=True,
             timeout=summary_cfg.get("llm_timeout_seconds", 8),
+            # Mark this nested `claude` so voxpane's own hooks don't re-fire and
+            # recurse (repeating the spoken summary). See hooks/*.sh.
+            env={**os.environ, "VOXPANE_NO_HOOK": "1"},
         )
     except (OSError, subprocess.SubprocessError):
         return None  # missing command, or timed out

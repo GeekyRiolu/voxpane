@@ -6,6 +6,9 @@
 # do the work detached.
 set -euo pipefail
 
+# Avoid recursion when voxpane invokes `claude` for a summary.
+if [ -n "${VOXPANE_NO_HOOK:-}" ]; then cat >/dev/null 2>&1; exit 0; fi
+
 payload="$(cat)"
 
 message="Claude needs your input"

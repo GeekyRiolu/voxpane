@@ -6,6 +6,9 @@
 # docs/plans/voxpane-plan.md, "The activity ledger".
 set -euo pipefail
 
+# Avoid recursion when voxpane invokes `claude` for a summary.
+if [ -n "${VOXPANE_NO_HOOK:-}" ]; then cat >/dev/null 2>&1; exit 0; fi
+
 # No jq -> no ledger, but never block Claude Code.
 command -v jq >/dev/null 2>&1 || exit 0
 

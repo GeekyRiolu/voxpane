@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import subprocess
+from types import SimpleNamespace
 
 from voxpane import summarize
 
@@ -73,6 +74,19 @@ def test_hybrid_falls_back_cleanly_on_timeout(monkeypatch):
     monkeypatch.setattr(summarize.subprocess, "run", boom)
     out = summarize.summarize(FACTS, "message", _cfg(mode="hybrid"))
     assert out == "3 files changed. Tests ran clean."
+
+
+def test_llm_clause_marks_nested_claude_against_recursion(monkeypatch):
+    seen = {}
+
+    def fake_run(cmd, **kwargs):
+        seen["env"] = kwargs.get("env")
+        return SimpleNamespace(returncode=0, stdout="did stuff", stderr="")
+
+    monkeypatch.setattr(summarize.subprocess, "run", fake_run)
+    cfg = {"summary": {"llm_command": "claude -p", "llm_timeout_seconds": 8}}
+    assert summarize._llm_clause("a message", cfg) == "did stuff"
+    assert seen["env"]["VOXPANE_NO_HOOK"] == "1"  # nested Claude won't re-fire hooks
 
 
 def test_llm_mode_uses_clause(monkeypatch):

@@ -8,6 +8,10 @@
 #     `voxpane speak`, not here.
 set -euo pipefail
 
+# Avoid recursion: voxpane sets VOXPANE_NO_HOOK when it invokes `claude` to build
+# a spoken summary; that nested Claude must not re-fire these hooks.
+if [ -n "${VOXPANE_NO_HOOK:-}" ]; then cat >/dev/null 2>&1; exit 0; fi
+
 payload="$(cat)"
 
 # Guard against a hook loop.
