@@ -13,10 +13,12 @@ def test_install_into_empty_settings(tmp_path):
 
     result = hooks.install_hooks(settings=settings, hooks_dest=dest)
 
-    assert set(result["added"]) == {"PostToolUse", "Stop", "Notification"}
+    assert set(result["added"]) == {
+        "PostToolUse", "Stop", "Notification", "SessionStart", "SessionEnd"
+    }
     data = json.loads(settings.read_text())
-    assert "PostToolUse" in data["hooks"] and "Stop" in data["hooks"]
-    assert "Notification" in data["hooks"]
+    for event in ("PostToolUse", "Stop", "Notification", "SessionStart", "SessionEnd"):
+        assert event in data["hooks"]
     assert (dest / "voxpane-stop.sh").exists()
     assert (dest / "voxpane-post-tool.sh").stat().st_mode & 0o111  # executable
 
