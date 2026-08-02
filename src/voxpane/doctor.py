@@ -23,7 +23,6 @@ from . import paths
 # short remediation hint used when it is missing.
 _REQUIRED_BINARIES: list[tuple[str, str]] = [
     ("pw-record", "install pipewire (pacman -S pipewire pipewire-audio)"),
-    ("whisper-cli", "install whisper.cpp (yay -S whisper.cpp)"),
     ("wtype", "install wtype (pacman -S wtype) — xdotool will NOT work on Wayland"),
     ("wl-copy", "install wl-clipboard (pacman -S wl-clipboard)"),
     ("tmux", "install tmux (pacman -S tmux)"),
@@ -50,24 +49,21 @@ def _bin(name: str, hint: str) -> Check:
     return Check(name, False, "not found on PATH", hint)
 
 
-def _model(cfg: dict[str, Any]) -> Check:
+def _stt(cfg: dict[str, Any]) -> Check:
+    """STT is available if voxpaned is running OR whisper-cli + its model exist."""
+    if paths.socket_path().is_socket():
+        return Check("speech-to-text", True, "voxpaned daemon (resident model)")
+    binary = cfg["whisper"].get("binary", "whisper-cli")
     model = config_mod.model_path(cfg)
-    if not model.exists():
-        return Check(
-            "whisper model",
-            False,
-            f"missing: {model}",
-            "download it (see docs/INSTALL.md §1.4)",
-        )
-    size = model.stat().st_size
-    if size < MODEL_MIN_BYTES:
-        return Check(
-            "whisper model",
-            False,
-            f"{model} is only {size // (1024 * 1024)} MB — looks truncated",
-            "re-download the model",
-        )
-    return Check("whisper model", True, f"{model.name} ({size // (1024 * 1024)} MB)")
+    have_model = model.exists() and model.stat().st_size >= MODEL_MIN_BYTES
+    if shutil.which(binary) and have_model:
+        return Check("speech-to-text", True, f"{binary} + {model.name}")
+    return Check(
+        "speech-to-text",
+        False,
+        "no daemon, and no whisper-cli + model",
+        "start it: systemctl --user start voxpaned  (or install whisper.cpp + the model)",
+    )
 
 
 def _runtime_dir_writable() -> Check:
@@ -173,7 +169,7 @@ def _tmux_target(cfg: dict[str, Any]) -> Check:
 def run_checks(cfg: dict[str, Any] | None = None) -> list[Check]:
     cfg = cfg or config_mod.load()
     checks: list[Check] = [_bin(name, hint) for name, hint in _REQUIRED_BINARIES]
-    checks.append(_model(cfg))
+    checks.append(_stt(cfg))
     checks.append(_default_source())
     checks.append(_runtime_dir_writable())
     checks.append(_tmux_target(cfg))
