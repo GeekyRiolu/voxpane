@@ -145,6 +145,33 @@ Day to day: start Claude Code in a tmux session named `claude`, press
 **SUPER ALT V**, speak, press it again, read the transcript in the pane, hit
 Enter. Walk away. The Dot tells you what happened.
 
+## Hands-free mode (conversation)
+
+Prefer to just talk? Enable **listen mode** and voxpane runs a continuous
+voice-activity loop — no push-to-talk. It **auto-starts with every Claude Code
+session** (`SessionStart`/`SessionEnd` hooks, ref-counted across sessions), and:
+
+- **you speak → it types** — when you pause for `listen.endpoint_silence_ms`
+  (default 1.5 s), your words are transcribed and **auto-submitted** to Claude;
+- **it speaks back** — Claude's reply is read out on your Dot (a relaxed
+  "conversational" gate: replies and questions are spoken, not just file facts);
+- **say "stop"** (or press **SUPER ALT S** → `voxpane hush`) to cut the Dot off
+  mid-sentence once you've heard enough;
+- **no feedback loop** — the mic is muted while the Dot speaks (plus a short
+  guard), so it never transcribes its own voice.
+
+```bash
+uv tool install --force 'voxpane[daemon,listen]'   # adds webrtcvad
+voxpane install-hooks                               # wires SessionStart/End
+# open a new Claude Code session — listening starts automatically
+```
+
+Tune `[listen]` in `config.toml` (`endpoint_silence_ms`, `min_speech_ms`,
+`vad_aggressiveness`, `auto_submit`, `conversational`). It is always-on and
+auto-submits, so it sends whatever you say — set `enabled = false` to fall back
+to push-to-talk, or `barge_in = true` to experiment with voice interruption
+(needs mic/speaker separation to be reliable).
+
 ## Configuration
 
 `install.sh` seeds two files in `~/.config/voxpane/`:
@@ -215,12 +242,12 @@ voxpane is built in milestones (full spec: [docs/plans/voxpane-plan.md](docs/pla
 | **M6** | outbound plumbing (ledger, hooks, the gate) | ✅ done |
 | **M7** | summarizer (facts / llm / hybrid) | ✅ done |
 | **M8** | Echo speaker backends + fallback chain | ✅ done |
-| **M9** | polish (waybar, repo vocab, chime) — VAD auto-stop pending | ✅ mostly |
+| **M9** | polish (waybar, repo vocab, chime) | ✅ done |
+| **M9+** | [hands-free listen mode](#hands-free-mode-conversation) (VAD, auto-submit, interrupt) | ✅ done |
 
-All milestones are implemented and unit-tested (92 tests). The only deferred item
-is M9's WebRTC-VAD silence auto-stop. Live end-to-end use needs the hardware set
-up per [docs/INSTALL.md](docs/INSTALL.md) (mic, whisper model, and — optional — an
-Echo or Bluetooth speaker).
+All milestones are implemented and unit-tested (104 tests). Live end-to-end use
+needs the hardware set up per [docs/INSTALL.md](docs/INSTALL.md) (mic, an STT
+model, and — optional — an Echo or Bluetooth speaker).
 
 Each stubbed module carries its contract and milestone tag. The bundled skill
 drives the build.

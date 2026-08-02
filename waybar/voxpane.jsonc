@@ -18,4 +18,5 @@
 // --- style.css ---
 // #custom-voxpane.recording { color: #ff5555; }
 // #custom-voxpane.speaking  { color: #50fa7b; }
+// #custom-voxpane.listening { color: #8be9fd; }
 // #custom-voxpane.idle      { color: inherit; }

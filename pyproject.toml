@@ -29,7 +29,8 @@ classifiers = [
 dependencies = []
 
 [project.optional-dependencies]
-daemon = ["faster-whisper>=1.0"]   # M5: resident STT model
+daemon = ["faster-whisper>=1.0"]        # M5: resident STT model
+listen = ["webrtcvad-wheels>=2.0"]      # hands-free VAD listen mode
 dev = ["pytest>=8", "pytest-cov", "ruff>=0.6"]
 
 [project.scripts]
@@ -51,6 +52,8 @@ packages = ["src/voxpane"]
 "hooks/voxpane-post-tool.sh" = "voxpane/data/hooks/voxpane-post-tool.sh"
 "hooks/voxpane-stop.sh" = "voxpane/data/hooks/voxpane-stop.sh"
 "hooks/voxpane-notification.sh" = "voxpane/data/hooks/voxpane-notification.sh"
+"hooks/voxpane-session-start.sh" = "voxpane/data/hooks/voxpane-session-start.sh"
+"hooks/voxpane-session-end.sh" = "voxpane/data/hooks/voxpane-session-end.sh"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

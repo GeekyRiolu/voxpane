@@ -124,23 +124,27 @@ The build spec bakes this in as `lead_silence_ms`.
 
 ## Status
 
-**All milestones M0–M9 are implemented and unit-tested** (92 tests), with the
-sole exception of M9's WebRTC-VAD silence auto-stop, which is deferred. Config
-defaults, the three hook scripts, `install.sh`, packaging, the systemd unit and
-the waybar module are all in place. See the `README.md` roadmap for the live
-status table. What remains is hardware setup (per Part 1) and, optionally, the
-VAD auto-stop.
+**All milestones M0–M9 are implemented and unit-tested** (104 tests), plus a
+**hands-free listen mode** (continuous WebRTC-VAD, auto-submit, spoken responses,
+interrupt) that supersedes M9's deferred VAD auto-stop — see "Hands-free listen
+mode" below. Config defaults, all five hook scripts, `install.sh`, packaging, the
+systemd unit and the waybar module are in place. See the `README.md` roadmap for
+the live status table. What remains is hardware setup (per Part 1).
 
-## Kickoff prompt
+## Hands-free listen mode
 
-The bundled skill (`.claude/skills/voxpane/`) auto-activates when you open the
-repo in Claude Code and already knows the build loop and the constraints. The
-one remaining feature:
-
-> Read `docs/plans/voxpane-plan.md`. Everything is built except M9's VAD silence
-> auto-stop — implement that (webrtcvad; stop recording after ~2 s of quiet, in
-> `recorder.py`), keep the pure modules pure and fully tested, then stop and tell
-> me how to test. Ask before installing anything with pacman/yay.
+An always-on alternative to push-to-talk, auto-started per Claude session via
+`SessionStart`/`SessionEnd` hooks (ref-counted). `listen.Endpointer` (pure,
+tested) turns a webrtcvad frame stream into utterances: it emits after
+`endpoint_silence_ms` of quiet, drops sub-`min_speech_ms` blips, caps runaways.
+`listen.run()` transcribes each utterance via the daemon, post-processes,
+delivers and **auto-submits**; it mutes the mic while the Dot speaks (+ a guard)
+to avoid a feedback loop, and a spoken stop-word (or `voxpane hush` / SUPER ALT S)
+interrupts playback. While listening, the Stop-hook speak path goes
+**conversational**: relaxed gate + LLM summary, so the Dot voices Claude's reply.
+Modules: `listen.py`, `hush.py`; config `[listen]`; extra `voxpane[listen]`
+(webrtcvad). The live mic loop needs hardware to validate; the endpointer is
+unit-tested.
 
 ## What this is
 
@@ -495,7 +499,8 @@ notification. No path raises.
 - `voxpane vocab --from-repo` — scan `git ls-files` for identifiers, split
   camel/snake case, generate an `initial_prompt` addendum for the current project,
   respecting the 224-token cap.
-- Silence auto-stop via WebRTC VAD after 2s of quiet.
+- Silence auto-stop via WebRTC VAD after 2s of quiet. **Done** — superseded by
+  the always-on hands-free listen mode (see "Hands-free listen mode" above).
 - `Notification` hook → short chime on the Dot when Claude is blocked on a permission
   prompt. This is arguably the single most useful outbound event; consider promoting
   it into M8.

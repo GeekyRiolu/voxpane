@@ -50,9 +50,8 @@ The loop, once per milestone:
    Then report what you built and exactly how to test it. **Do not skip ahead**
    to a later milestone in the same pass.
 
-**Status: M0–M9 are implemented and unit-tested.** The only deferred item is
-M9's WebRTC-VAD silence auto-stop. Use this loop for that, for bug fixes, or to
-extend — same rules apply.
+**Status: M0–M9 plus hands-free listen mode are implemented and unit-tested.**
+Use this loop for bug fixes or to extend — same rules and constraints apply.
 
 | M | Owns | Key files |
 | --- | --- | --- |
@@ -65,7 +64,8 @@ extend — same rules apply.
 | M6 ✅ | ledger, hooks, the gate | `ledger.py`, `hooks/` |
 | M7 ✅ | summarizer (facts/llm/hybrid) | `summarize.py` |
 | M8 ✅ | Echo speaker backends + fallback | `speakers/` |
-| M9 ~ | waybar, repo vocab, chime (VAD pending) | `vocab.py`, `waybar/` |
+| M9 ✅ | waybar, repo vocab, chime | `vocab.py`, `waybar/` |
+| M9+ ✅ | hands-free listen mode (VAD, auto-submit, hush) | `listen.py`, `hush.py` |
 
 Ask before installing anything with `pacman`/`yay`.
 

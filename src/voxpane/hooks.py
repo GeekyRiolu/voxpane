@@ -19,6 +19,8 @@ _SCRIPTS = {
     "PostToolUse": ("voxpane-post-tool.sh", "*"),
     "Stop": ("voxpane-stop.sh", None),
     "Notification": ("voxpane-notification.sh", None),
+    "SessionStart": ("voxpane-session-start.sh", None),
+    "SessionEnd": ("voxpane-session-end.sh", None),
 }
 
 
