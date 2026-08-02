@@ -49,6 +49,11 @@ post_speak_guard_ms = 700       # ignore the mic this long after the Dot speaks
 barge_in = false                # EXPERIMENTAL: your speech interrupts the Dot
                                 # (unreliable without mic/speaker separation)
 stop_words = ["stop", "stop it", "enough", "cancel", "never mind"]
+# Extra whole utterances to silently drop, ON TOP OF the built-in filter that
+# already catches Whisper's silence/outro hallucinations ("thanks for watching,
+# I'll see you in the next video", etc.). Matched whole-utterance, so a real
+# request containing these words is unaffected. Add your own recurring false hits:
+# ignore_phrases = ["some phrase whisper keeps inventing"]
 # Only listen while the Claude Code terminal is focused (Hyprland). The window is
 # captured when the session starts; switch to a browser/other app and the mic is
 # ignored — so it won't transcribe YouTube, calls, or someone else talking.

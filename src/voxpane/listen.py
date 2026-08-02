@@ -367,6 +367,59 @@ _TERMINAL_EXEC = {
 }
 
 
+def _normalize(text: str) -> str:
+    """Lowercase, drop punctuation, collapse whitespace — for phrase matching."""
+    return re.sub(r"\s+", " ", re.sub(r"[^a-z0-9 ]+", " ", text.lower())).strip()
+
+
+# Whisper hallucinates these on silence / music / a video's outro — it emits
+# "Thanks for watching, I'll see you in the next video!" from near-silent frames.
+# Dictation auto-submits, so without this an idle mic quietly types junk into
+# Claude. These are FRAGMENTS: an utterance is dropped only if it tiles ENTIRELY
+# into them (see _is_ignorable), so a real request with a content word survives.
+_HALLUCINATION_FRAGMENTS = [
+    "thank you for watching", "thanks for watching everyone", "thanks for watching",
+    "thank you very much", "thank you so much", "thanks so much",
+    "i ll see you in the next video", "i ll see you next time", "i ll see you",
+    "see you in the next video", "see you in the next one", "see you next time",
+    "see you next video", "in the next video", "in the next one",
+    "don t forget to subscribe", "subscribe to my channel", "like and subscribe",
+    "please subscribe", "for watching", "thank you", "see you", "subscribe",
+    "everyone", "so much", "thanks", "bye bye", "please", "guys", "okay",
+    "bye", "you", "and", "so", "the",
+]
+
+# Precomputed word-lists, longest first (greedy tiling matches the longest run).
+_FRAG_WORDS = sorted(
+    (_normalize(f).split() for f in _HALLUCINATION_FRAGMENTS), key=len, reverse=True
+)
+
+
+def _is_ignorable(text: str, cfg: dict[str, Any]) -> bool:
+    """True if the whole utterance is a Whisper hallucination (stock outro junk).
+
+    Empty transcript, an exact user-listed ``ignore_phrases`` entry, or a string
+    that tiles entirely into ``_HALLUCINATION_FRAGMENTS`` (so compound outros like
+    "thanks for watching, I'll see you in the next video" are caught, but any
+    utterance with a real content word is kept).
+    """
+    norm = _normalize(text)
+    if not norm:
+        return True
+    if norm in {_normalize(p) for p in cfg["listen"].get("ignore_phrases", [])}:
+        return True
+    words = norm.split()
+    i = 0
+    while i < len(words):
+        for frag in _FRAG_WORDS:
+            if words[i:i + len(frag)] == frag:
+                i += len(frag)
+                break
+        else:
+            return False  # a word that isn't outro junk -> real speech, keep it
+    return True
+
+
 def _wake_variants(wake_word: str, aliases: list[str]) -> list[str]:
     variants = {wake_word.lower().strip(), *(a.lower().strip() for a in aliases if a.strip())}
     return sorted((v for v in variants if v), key=len, reverse=True)
@@ -378,7 +431,7 @@ def strip_wake_word(text: str, wake_word: str, aliases: list[str] | None = None)
     if not wake_word:
         return text
     original = text.strip()
-    normalized = re.sub(r"\s+", " ", re.sub(r"[^a-z0-9 ]+", " ", original.lower())).strip()
+    normalized = _normalize(original)
     for variant in _wake_variants(wake_word, aliases or []):
         if normalized == variant:
             return ""
@@ -454,6 +507,8 @@ def handle_utterance(pcm: bytes, cfg: dict[str, Any]) -> str | None:
         _unlink(wav)
     if not text:
         return None
+    if _is_ignorable(text, cfg):
+        return None  # Whisper hallucination on silence/music — never deliver it
 
     lc = cfg["listen"]
     wake = lc.get("wake_word", "").strip()

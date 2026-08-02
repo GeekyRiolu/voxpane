@@ -390,3 +390,36 @@ def test_captured_claude_precise_not_a_stray_terminal(tmp_path, monkeypatch):
     # not the captured Claude terminal + no wake word -> ignored (won't type into htop)
     assert listen.handle_utterance(b"\x00" * 640, _HYBRID_CFG) is None
     assert calls == []
+
+
+# --- Whisper hallucination filter ---
+
+def test_is_ignorable_matches_whisper_hallucinations():
+    cfg = {"listen": {}}  # built-in fragment filter, no user phrases
+    assert listen._is_ignorable("Thanks for watching!", cfg)
+    assert listen._is_ignorable("thank you.", cfg)
+    assert listen._is_ignorable("You", cfg)
+    assert listen._is_ignorable("", cfg)
+    # compound outros that don't match any single phrase but tile into fragments:
+    assert listen._is_ignorable("Thanks for watching, I'll see you in the next video.", cfg)
+    assert listen._is_ignorable("Thank you so much for watching everyone!", cfg)
+    # real speech (has a content word) is never dropped:
+    assert not listen._is_ignorable("run the tests", cfg)
+    assert not listen._is_ignorable("thank you, now run the tests", cfg)
+    assert not listen._is_ignorable("see you after you commit the code", cfg)
+
+
+def test_ignore_phrases_are_additive(monkeypatch):
+    cfg = {"listen": {"ignore_phrases": ["computer engage"]}}
+    assert listen._is_ignorable("Computer, engage!", cfg)   # user phrase
+    assert listen._is_ignorable("thanks for watching", cfg)  # built-ins still apply
+    assert not listen._is_ignorable("open the file", cfg)
+
+
+def test_hallucination_not_delivered_when_focused(tmp_path, monkeypatch):
+    _prep_utterance(monkeypatch, tmp_path, transcript="Thanks for watching!", window=_TERM)
+    delivered = []
+    monkeypatch.setattr("voxpane.deliver.deliver",
+                        lambda text, cfg, submit=True: delivered.append(text))
+    assert listen.handle_utterance(b"\x00" * 640, _HYBRID_CFG) is None
+    assert delivered == []  # the video's outro never reaches Claude
