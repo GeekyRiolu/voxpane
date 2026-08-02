@@ -30,7 +30,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--version", action="version", version=f"voxpane {__version__}")
     sub = parser.add_subparsers(dest="command", metavar="<command>")
 
-    sub.add_parser("doctor", help="check the environment is ready [M0]")
+    sub.add_parser("doctor", help="check the environment is ready (start here)")
 
     sub.add_parser("start", help="record; then `voxpane stop` transcribes")
     sub.add_parser("stop", help="stop, transcribe, copy transcript to clipboard")
