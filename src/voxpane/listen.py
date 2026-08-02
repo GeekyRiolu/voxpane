@@ -212,6 +212,28 @@ def focus_ok(cfg: dict[str, Any]) -> bool:
     return active["address"] in addresses
 
 
+def _dictation_target_focused(cfg: dict[str, Any]) -> bool:
+    """True if the focused window is where free dictation should go.
+
+    A captured Claude terminal when we have one (precise — never a stray terminal),
+    else any terminal when no session is registered (always-on mode). ``focus_match``
+    overrides both. This is what splits free dictation (focused on Claude) from
+    wake-word-gated delivery (focused on a browser / nothing).
+    """
+    active = _active_window()
+    if active is None:
+        return False
+    match = (cfg["listen"].get("focus_match") or "").strip()
+    if match:
+        pattern = re.compile(match, re.IGNORECASE)
+        cls, title = active.get("class", ""), active.get("title", "")
+        return bool(pattern.search(cls) or pattern.search(title))
+    captured = {w.get("address") for w in _load_windows().values() if w.get("address")}
+    if captured:
+        return active.get("address") in captured
+    return _is_terminal_window(active)
+
+
 def ensure(session_id: str, cfg: dict[str, Any]) -> None:
     """A Claude session started: register it and start the listener if needed."""
     if not cfg.get("listen", {}).get("enabled", False):
@@ -225,12 +247,19 @@ def ensure(session_id: str, cfg: dict[str, Any]) -> None:
 
 
 def release(session_id: str) -> None:
-    """A Claude session ended: unregister it and stop the listener if it was last."""
+    """A Claude session ended: unregister it and stop the listener if it was last.
+
+    With ``[listen] always_on`` the listener is a standalone service that outlives
+    every session, so a session ending must not stop it.
+    """
+    from . import config as config_mod
+
     sessions = _sessions()
     sessions.discard(session_id)
     _write_sessions(sessions)
     _release_window(session_id)
-    if not sessions:
+    always_on = config_mod.load()["listen"].get("always_on", False)
+    if not sessions and not always_on:
         stop()
 
 
@@ -425,28 +454,45 @@ def handle_utterance(pcm: bytes, cfg: dict[str, Any]) -> str | None:
         _unlink(wav)
     if not text:
         return None
-    overlay.set_state("thinking", text)  # drive the on-screen indicator
 
     lc = cfg["listen"]
     wake = lc.get("wake_word", "").strip()
-    if wake:
-        request = strip_wake_word(text, wake, lc.get("wake_aliases", []))
-        if request is None:
-            return None  # not addressed to voxpane — ignore
-        if lc.get("pause_media_on_wake", True):
-            _pause_media()
-        if not request:
-            return None  # just the wake word, no request yet
+
+    # Focus decides the mode, per utterance:
+    #  * Claude terminal focused  -> free dictation, no wake word (like a headset).
+    #  * anything else / no session -> the wake word gates everything, then we pause
+    #    media and route to Claude (opening a terminal if there isn't one).
+    if _dictation_target_focused(cfg):
+        # Don't dictate over other audio (a video) unless configured to talk over it.
+        if lc.get("pause_on_playback", True) and _media_playing():
+            return None
+        request = text
+        if wake:  # tolerate a wake word said out of habit; otherwise dictate as-is
+            stripped = strip_wake_word(text, wake, lc.get("wake_aliases", []))
+            if stripped:
+                request = stripped
+        if is_stop_word(request, cfg):
+            hush.hush()
+            return None
+        overlay.set_state("thinking", request)
         rewritten = postprocess.apply(request, config_mod.load_commands(), cfg)
-        _wake_deliver(rewritten.text, cfg)
+        submit = lc.get("auto_submit", True) or rewritten.submit
+        deliver.deliver(rewritten.text, cfg, submit=submit)
         return rewritten.text
 
-    if is_stop_word(text, cfg):
-        hush.hush()
+    # Not focused on Claude: the wake word is required.
+    if not wake:
         return None
-    rewritten = postprocess.apply(text, config_mod.load_commands(), cfg)
-    submit = lc.get("auto_submit", True) or rewritten.submit
-    deliver.deliver(rewritten.text, cfg, submit=submit)
+    request = strip_wake_word(text, wake, lc.get("wake_aliases", []))
+    if request is None:
+        return None  # not addressed to voxpane — ignore
+    if lc.get("pause_media_on_wake", True):
+        _pause_media()
+    if not request:
+        return None  # just the wake word, no request yet
+    overlay.set_state("thinking", request)
+    rewritten = postprocess.apply(request, config_mod.load_commands(), cfg)
+    _wake_deliver(rewritten.text, cfg)
     return rewritten.text
 
 
@@ -465,6 +511,14 @@ def run(cfg: dict[str, Any] | None = None) -> int:
         return 1
 
     cfg = cfg or config_mod.load()
+
+    # Single instance: the always-on service and a session hook can both try to
+    # start a listener. If one already owns the pid file, defer to it.
+    existing = _read_pid(paths.listener_pid_file())
+    if existing and existing != os.getpid() and _alive(existing):
+        print(f"voxpane listen: already running (pid {existing})", file=sys.stderr)
+        return 0
+
     lc = cfg["listen"]
     vad = webrtcvad.Vad(int(lc.get("vad_aggressiveness", 2)))
     endpointer = Endpointer(
@@ -475,7 +529,6 @@ def run(cfg: dict[str, Any] | None = None) -> int:
     )
     guard = lc.get("post_speak_guard_ms", 700) / 1000
     poll = lc.get("focus_poll_ms", 250) / 1000
-    pause_on_playback = lc.get("pause_on_playback", True)
     wake = lc.get("wake_word", "").strip()
 
     paths.ensure(paths.runtime_dir())
@@ -499,14 +552,12 @@ def run(cfg: dict[str, Any] | None = None) -> int:
             if stop_requested["v"]:
                 break
             now = time.monotonic()
-            # Listen only when the Claude window is focused AND nothing else is
-            # playing audio (throttled) — so the mic ignores YouTube, calls, etc.
             if now - last_check >= poll:
-                # Wake-word mode listens everywhere (filtered by the wake word);
-                # otherwise gate on focus + whether other audio is playing.
-                active = wake != "" or (
-                    focus_ok(cfg) and not (pause_on_playback and _media_playing())
-                )
+                # Capture whenever the wake word is armed (so it's heard everywhere)
+                # or a dictation target is focused. handle_utterance decides per
+                # utterance whether to dictate or wake-gate, and applies the media
+                # gate for dictation.
+                active = wake != "" or focus_ok(cfg)
                 last_check = now
             if not active:
                 _overlay("idle")
@@ -533,4 +584,6 @@ def run(cfg: dict[str, Any] | None = None) -> int:
         if _read_pid(paths.listener_pid_file()) == os.getpid():
             _unlink(paths.listener_pid_file())
         overlay.clear()
-    return 0
+    # Clean SIGTERM stop -> 0 (systemd won't restart). Loop ending any other way
+    # (the mic pipe died) -> 1 so `Restart=on-failure` brings the listener back.
+    return 0 if stop_requested["v"] else 1

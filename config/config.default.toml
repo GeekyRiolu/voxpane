@@ -70,6 +70,11 @@ wake_aliases = ["vox pane", "vox pain", "box pane", "fox pane", "voxpin", "vox p
 pause_media_on_wake = true      # playerctl pause on wake
 wake_open_command = "claude --dangerously-skip-permissions --model opus"
 terminal = ""                   # terminal to open a new session in ("" = autodetect)
+# Keep one listener running even with no Claude session open, so the wake word
+# works from a cold desktop. Run it as a service so it starts at login + restarts:
+#   voxpane install-listener   (writes + enables ~/.config/systemd/user/voxpane-listen.service)
+# With this on, a session ending never stops the listener.
+always_on = false
 
 [speak]
 enabled = true

@@ -56,6 +56,7 @@ _SAFETY_DEFAULTS: dict[str, Any] = {
         "pause_media_on_wake": True,
         "wake_open_command": "claude --dangerously-skip-permissions --model opus",
         "terminal": "",
+        "always_on": False,
     },
     "speak": {
         "enabled": True,

@@ -177,10 +177,30 @@ auto-submits, so it sends whatever you say — set `enabled = false` to fall bac
 to push-to-talk, or `barge_in = true` to experiment with voice interruption
 (needs mic/speaker separation to be reliable).
 
-**Wake word (Alexa-style).** Set `[listen] wake_word = "voxpane"` and it listens
-everywhere but only acts on **"voxpane …"** — pausing media, then sending the rest
-to Claude (opening a session with `wake_open_command` if none is up). Whisper
-mangles odd words, so add the mis-hearings you see to `wake_aliases`.
+**Wake word (Alexa-style).** Set `[listen] wake_word = "voxpane"` and the mode is
+chosen per utterance by **what's focused**:
+
+- **Claude terminal focused → free dictation** — just talk, no wake word needed
+  (exactly like above). It dictates only into a captured Claude terminal (or any
+  terminal when no session is registered), never a stray one.
+- **anything else focused (a browser, another app, nothing) → wake word required**
+  — it listens everywhere but acts only on **"voxpane …"**: it pauses media, then
+  routes the rest to Claude — focusing an open Claude terminal, or opening a fresh
+  one with `wake_open_command` (never pasting into the wrong window). It even works
+  over a playing video.
+
+Whisper mangles the name, so `wake_aliases` already covers "vox pane", "box pane",
+etc. — add any mis-hearings you see.
+
+**Always-on (works with no session open).** By default the listener is tied to
+Claude sessions. To keep the wake word alive from a cold desktop, run:
+
+```bash
+voxpane install-listener   # writes + enables a systemd --user service, sets always_on
+```
+
+This starts one listener at login (auto-restarts on crash) that outlives every
+session. Stop it with `systemctl --user disable --now voxpane-listen`.
 
 **On-screen overlay.** `voxpane overlay` shows a Siri-style pill at the bottom of
 the screen while it's listening/thinking/speaking (needs [eww](https://github.com/elkowar/eww);
@@ -282,7 +302,8 @@ mkdir -p ~/.claude/skills && cp -r .claude/skills/voxpane ~/.claude/skills/
 
 ## Non-goals
 
-- No wake word, no always-on listening.
+- No cloud wake-word service — the optional wake word runs on local Whisper, and
+  always-on listening is opt-in (`voxpane install-listener`), never the default.
 - No cloud STT. Ever. Audio does not leave the machine.
 - Not a general voice-control system (that's [Talon](https://talonvoice.com)'s job).
 - Not an Alexa Skill. Nothing here is published to Amazon.

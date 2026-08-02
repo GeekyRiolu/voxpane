@@ -68,6 +68,7 @@ def test_session_refcount_starts_once_stops_last(tmp_path, monkeypatch):
     monkeypatch.setattr(listen, "_spawn_listener", spawn)
     monkeypatch.setattr(listen, "is_listening", lambda: calls["spawn"] > 0)
     monkeypatch.setattr(listen, "stop", stop)
+    monkeypatch.setattr(config, "load", config.defaults)  # release() reads always_on
     cfg = config.defaults()
 
     listen.ensure("a", cfg)
@@ -271,3 +272,121 @@ def test_stop_keeps_pidfile_reclaimed_by_a_new_listener(tmp_path, monkeypatch):
     monkeypatch.setattr(listen, "_read_pid", lambda p: next(reads))
     listen.stop()
     assert pidfile.exists()  # 222 != 111 -> must not remove the new listener's pid file
+
+
+# --- always_on: session end must not stop a standalone listener ---
+
+def test_release_stops_last_when_not_always_on(tmp_path, monkeypatch):
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
+    stops = []
+    monkeypatch.setattr(listen, "stop", lambda: stops.append(1))
+    monkeypatch.setattr(config, "load", config.defaults)  # always_on defaults False
+    listen._write_sessions({"only"})
+    listen.release("only")
+    assert stops == [1]
+
+
+def test_release_keeps_listener_when_always_on(tmp_path, monkeypatch):
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
+    stops = []
+    monkeypatch.setattr(listen, "stop", lambda: stops.append(1))
+
+    def always_on_cfg():
+        cfg = config.defaults()
+        cfg["listen"]["always_on"] = True
+        return cfg
+
+    monkeypatch.setattr(config, "load", always_on_cfg)
+    listen._write_sessions({"only"})
+    listen.release("only")
+    assert stops == []  # standalone listener survives the last session ending
+
+
+# --- hybrid mode: focus decides dictation vs wake-gating ---
+
+_HYBRID_CFG = {
+    "listen": {
+        "wake_word": "voxpane", "wake_aliases": ["vox pane"], "pause_on_playback": True,
+        "pause_media_on_wake": True, "auto_submit": True, "stop_words": ["stop"],
+        "focus_match": "",
+    },
+    "delivery": {"mode": "focus"},
+}
+
+
+def _prep_utterance(monkeypatch, tmp_path, *, transcript, window, media=False, captured=None):
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
+    paths.ensure(paths.runtime_dir())  # handle_utterance writes a temp wav here
+    monkeypatch.setattr("voxpane.transcriber.transcribe", lambda wav, cfg: transcript)
+    monkeypatch.setattr(listen, "_active_window", lambda: window)
+    monkeypatch.setattr(listen, "_media_playing", lambda: media)
+    monkeypatch.setattr(listen, "_load_windows", lambda: captured or {})
+    monkeypatch.setattr("voxpane.config.load_commands", lambda: {})
+    monkeypatch.setattr(
+        "voxpane.postprocess.apply",
+        lambda text, cmds, cfg: SimpleNamespace(text=text, submit=False),
+    )
+
+
+_TERM = {"class": "Alacritty", "title": "claude", "address": "0x1"}
+_BROWSER = {"class": "chromium", "title": "YouTube", "address": "0x9"}
+
+
+def test_dictates_when_terminal_focused(tmp_path, monkeypatch):
+    _prep_utterance(monkeypatch, tmp_path, transcript="list the files", window=_TERM)
+    got = {}
+    monkeypatch.setattr("voxpane.deliver.deliver",
+                        lambda text, cfg, submit=True: got.update(text=text, submit=submit))
+    assert listen.handle_utterance(b"\x00" * 640, _HYBRID_CFG) == "list the files"
+    assert got["text"] == "list the files"  # no wake word needed when focused
+
+
+def test_terminal_focus_strips_optional_wake_word(tmp_path, monkeypatch):
+    _prep_utterance(monkeypatch, tmp_path, transcript="voxpane run the tests", window=_TERM)
+    got = {}
+    monkeypatch.setattr("voxpane.deliver.deliver",
+                        lambda text, cfg, submit=True: got.update(text=text))
+    listen.handle_utterance(b"\x00" * 640, _HYBRID_CFG)
+    assert got["text"] == "run the tests"
+
+
+def test_no_dictation_over_media_when_focused(tmp_path, monkeypatch):
+    _prep_utterance(monkeypatch, tmp_path, transcript="hello there", window=_TERM, media=True)
+    got = {}
+    monkeypatch.setattr("voxpane.deliver.deliver",
+                        lambda text, cfg, submit=True: got.update(text=text))
+    assert listen.handle_utterance(b"\x00" * 640, _HYBRID_CFG) is None
+    assert got == {}
+
+
+def test_unaddressed_speech_ignored_when_browser_focused(tmp_path, monkeypatch):
+    _prep_utterance(monkeypatch, tmp_path, transcript="what time is it", window=_BROWSER)
+    monkeypatch.setattr(listen, "_pause_media", lambda: None)
+    calls = []
+    monkeypatch.setattr(listen, "_wake_deliver", lambda text, cfg: calls.append(text))
+    assert listen.handle_utterance(b"\x00" * 640, _HYBRID_CFG) is None
+    assert calls == []  # no wake word + not focused -> ignored
+
+
+def test_wake_delivers_when_browser_focused(tmp_path, monkeypatch):
+    _prep_utterance(monkeypatch, tmp_path, transcript="voxpane open the readme", window=_BROWSER)
+    monkeypatch.setattr(listen, "_pause_media", lambda: None)
+    calls = []
+    monkeypatch.setattr(listen, "_wake_deliver", lambda text, cfg: calls.append(text))
+    assert listen.handle_utterance(b"\x00" * 640, _HYBRID_CFG) == "open the readme"
+    assert calls == ["open the readme"]
+
+
+def test_captured_claude_precise_not_a_stray_terminal(tmp_path, monkeypatch):
+    # A different terminal is focused; the real Claude window is captured elsewhere.
+    _prep_utterance(
+        monkeypatch, tmp_path, transcript="hello",
+        window={"class": "Alacritty", "title": "htop", "address": "0xOTHER"},
+        captured={"s": {"address": "0xCLAUDE"}},
+    )
+    monkeypatch.setattr(listen, "_pause_media", lambda: None)
+    calls = []
+    monkeypatch.setattr(listen, "_wake_deliver", lambda text, cfg: calls.append(text))
+    # not the captured Claude terminal + no wake word -> ignored (won't type into htop)
+    assert listen.handle_utterance(b"\x00" * 640, _HYBRID_CFG) is None
+    assert calls == []

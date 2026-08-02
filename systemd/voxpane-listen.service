@@ -1,0 +1,31 @@
+# voxpane hands-free listener — a systemd --user unit.
+#
+# Keeps ONE listener running even with no Claude session open, so the wake word
+# ("voxpane ...") works from a cold desktop. Pairs with `[listen] always_on = true`
+# (so a session ending never stops it) and `wake_word` set in config.toml.
+#
+# Install (one-liner):
+#   voxpane install-listener
+#
+# ...or by hand:
+#   mkdir -p ~/.config/systemd/user
+#   cp systemd/voxpane-listen.service ~/.config/systemd/user/
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now voxpane-listen
+#
+# Needs the `listen` extra:  uv tool install --force 'voxpane[daemon,listen]'
+
+[Unit]
+Description=voxpane hands-free listener (always-on wake word)
+Documentation=https://github.com/GeekyRiolu/voxpane
+After=voxpaned.service pipewire.service
+Wants=voxpaned.service
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/voxpane listen --run
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=default.target

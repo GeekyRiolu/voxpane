@@ -49,6 +49,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("install-hooks", help="install Claude Code hooks (ledger + speak)")
     sub.add_parser("install-bindings", help="install the Hyprland keybind (SUPER ALT V)")
+    sub.add_parser(
+        "install-listener",
+        help="enable the always-on listener service (wake word works with no session)",
+    )
 
     vocab = sub.add_parser("vocab", help="build a repo vocabulary prompt for whisper")
     vocab.add_argument("--from-repo", action="store_true")
@@ -221,6 +225,80 @@ def _cmd_install_bindings() -> int:
     if result.status == "created" and not result.sourced:
         print(f"  ! {result.path.name} is new — add to hyprland.conf: source = {result.path}")
     print("  reload Hyprland: hyprctl reload")
+    return 0
+
+
+def _ensure_always_on() -> tuple[Path, bool]:
+    """Ensure ``[listen] always_on = true`` in the user config. Returns (path, changed)."""
+    from . import config as config_mod
+
+    path = paths.config_dir() / "config.toml"
+    if config_mod.load()["listen"].get("always_on", False):
+        return path, False
+    paths.ensure(paths.config_dir())
+    lines = path.read_text().splitlines() if path.is_file() else []
+    out: list[str] = []
+    inserted = False
+    for line in lines:
+        out.append(line)
+        if not inserted and line.strip() == "[listen]":
+            out.append("always_on = true")
+            inserted = True
+    if not inserted:
+        if out and out[-1].strip():
+            out.append("")
+        out += ["[listen]", "always_on = true"]
+    path.write_text("\n".join(out) + "\n")
+    return path, True
+
+
+def _cmd_install_listener() -> int:
+    import shutil
+    import subprocess
+
+    # Prefer the durable tool install over whatever's first on PATH (a repo/venv
+    # shim would break the service if that checkout moved).
+    home_bin = Path.home() / ".local" / "bin" / "voxpane"
+    exe = str(home_bin) if home_bin.exists() else (shutil.which("voxpane") or str(home_bin))
+    unit = (
+        "[Unit]\n"
+        "Description=voxpane hands-free listener (always-on wake word)\n"
+        "Documentation=https://github.com/GeekyRiolu/voxpane\n"
+        "After=voxpaned.service pipewire.service\n"
+        "Wants=voxpaned.service\n\n"
+        "[Service]\n"
+        "Type=simple\n"
+        f"ExecStart={exe} listen --run\n"
+        "Restart=on-failure\n"
+        "RestartSec=2\n\n"
+        "[Install]\n"
+        "WantedBy=default.target\n"
+    )
+    unit_dir = Path.home() / ".config" / "systemd" / "user"
+    unit_dir.mkdir(parents=True, exist_ok=True)
+    unit_path = unit_dir / "voxpane-listen.service"
+    unit_path.write_text(unit)
+    print(f"✓ wrote {unit_path}")
+
+    cfg_path, changed = _ensure_always_on()
+    print(f"✓ set always_on = true in {cfg_path}" if changed
+          else f"✓ always_on already enabled ({cfg_path})")
+
+    if not shutil.which("systemctl"):
+        print("  systemctl not found — enable it once systemd is available:")
+        print("    systemctl --user daemon-reload && systemctl --user enable --now voxpane-listen")
+        return 0
+    try:
+        subprocess.run(["systemctl", "--user", "daemon-reload"], check=True)
+        subprocess.run(
+            ["systemctl", "--user", "enable", "--now", "voxpane-listen.service"], check=True
+        )
+    except (OSError, subprocess.CalledProcessError) as exc:
+        print(f"  ! could not start the service automatically: {exc}", file=sys.stderr)
+        print("    run: systemctl --user enable --now voxpane-listen")
+        return 1
+    print("✓ voxpane-listen.service enabled and started")
+    print('  set wake_word in config.toml, then say "voxpane ..." from anywhere')
     return 0
 
 
@@ -528,6 +606,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         "toggle": _cmd_toggle,
         "daemon": _cmd_daemon,
         "install-bindings": _cmd_install_bindings,
+        "install-listener": _cmd_install_listener,
     }
     argful = {
         "speak": _cmd_speak,
