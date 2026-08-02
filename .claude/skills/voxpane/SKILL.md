@@ -50,18 +50,22 @@ The loop, once per milestone:
    Then report what you built and exactly how to test it. **Do not skip ahead**
    to a later milestone in the same pass.
 
+**Status: M0–M9 are implemented and unit-tested.** The only deferred item is
+M9's WebRTC-VAD silence auto-stop. Use this loop for that, for bug fixes, or to
+extend — same rules apply.
+
 | M | Owns | Key files |
 | --- | --- | --- |
 | M0 ✅ | environment checks | `doctor.py` |
 | M1 ✅ | one-shot record→transcribe→clipboard | `recorder.py`, `transcriber.py` |
-| M2 | toggle, keybind, notifications | `cli.py`, `notify.py`, `hypr/` |
-| M3 | delivery (tmux/focus/clipboard) | `deliver.py` |
-| M4 | command dictionary | `postprocess.py` |
-| M5 | resident STT daemon | `daemon.py`, `systemd/` |
-| M6 | ledger, hooks, the gate | `ledger.py`, `hooks/` |
-| M7 | summarizer (facts/llm/hybrid) | `summarize.py` |
-| M8 | Echo speaker backends + fallback | `speakers/` |
-| M9 | polish (waybar, repo vocab, VAD) | — |
+| M2 ✅ | toggle, keybind, notifications | `cli.py`, `notify.py`, `hypr/` |
+| M3 ✅ | delivery (tmux/focus/clipboard) | `deliver.py` |
+| M4 ✅ | command dictionary | `postprocess.py` |
+| M5 ✅ | resident STT daemon | `daemon.py`, `systemd/` |
+| M6 ✅ | ledger, hooks, the gate | `ledger.py`, `hooks/` |
+| M7 ✅ | summarizer (facts/llm/hybrid) | `summarize.py` |
+| M8 ✅ | Echo speaker backends + fallback | `speakers/` |
+| M9 ~ | waybar, repo vocab, chime (VAD pending) | `vocab.py`, `waybar/` |
 
 Ask before installing anything with `pacman`/`yay`.
 

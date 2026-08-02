@@ -208,14 +208,19 @@ voxpane is built in milestones (full spec: [docs/plans/voxpane-plan.md](docs/pla
 | --- | --- | --- |
 | **M0** | `voxpane doctor` — environment checks | ✅ done |
 | **M1** | one-shot inbound (record → transcribe → clipboard) | ✅ done |
-| M2 | toggle, keybind, recording notifications | ⏳ stubbed |
-| M3 | delivery backends (tmux / focus / clipboard) | ⏳ stubbed |
-| M4 | post-processing (command dictionary) | ⏳ stubbed |
-| M5 | daemon (resident model, sub-1.2s latency) | ⏳ stubbed |
-| M6 | outbound plumbing (ledger, hooks, the gate) | ⏳ stubbed |
-| M7 | summarizer (facts / llm / hybrid) | ⏳ stubbed |
-| M8 | Echo speaker backends + fallback chain | ⏳ stubbed |
-| M9 | polish (waybar, repo vocab, VAD auto-stop) | ⏳ stubbed |
+| **M2** | toggle, keybind, recording notifications | ✅ done |
+| **M3** | delivery backends (tmux / focus / clipboard) | ✅ done |
+| **M4** | post-processing (command dictionary) | ✅ done |
+| **M5** | daemon (resident model, sub-1.2s latency) | ✅ done |
+| **M6** | outbound plumbing (ledger, hooks, the gate) | ✅ done |
+| **M7** | summarizer (facts / llm / hybrid) | ✅ done |
+| **M8** | Echo speaker backends + fallback chain | ✅ done |
+| **M9** | polish (waybar, repo vocab, chime) — VAD auto-stop pending | ✅ mostly |
+
+All milestones are implemented and unit-tested (92 tests). The only deferred item
+is M9's WebRTC-VAD silence auto-stop. Live end-to-end use needs the hardware set
+up per [docs/INSTALL.md](docs/INSTALL.md) (mic, whisper model, and — optional — an
+Echo or Bluetooth speaker).
 
 Each stubbed module carries its contract and milestone tag. The bundled skill
 drives the build.

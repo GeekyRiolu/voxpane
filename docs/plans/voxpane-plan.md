@@ -124,22 +124,23 @@ The build spec bakes this in as `lead_silence_ms`.
 
 ## Status
 
-The repo is **scaffolded**: the full layout below exists. **M0 (`voxpane doctor`)
-and M1 (one-shot record → transcribe → clipboard) are implemented and tested**;
-M2–M9 are stubbed — each module carries its contract, signatures and milestone
-tag. Config defaults, both hook scripts, `install.sh`, packaging and a green test
-suite are in place. See the `README.md` roadmap for the live status table.
+**All milestones M0–M9 are implemented and unit-tested** (92 tests), with the
+sole exception of M9's WebRTC-VAD silence auto-stop, which is deferred. Config
+defaults, the three hook scripts, `install.sh`, packaging, the systemd unit and
+the waybar module are all in place. See the `README.md` roadmap for the live
+status table. What remains is hardware setup (per Part 1) and, optionally, the
+VAD auto-stop.
 
 ## Kickoff prompt
 
 The bundled skill (`.claude/skills/voxpane/`) auto-activates when you open the
-repo in Claude Code and already knows the milestone loop and the constraints. To
-build the next milestone, say:
+repo in Claude Code and already knows the build loop and the constraints. The
+one remaining feature:
 
-> Read `docs/plans/voxpane-plan.md` and implement the next unbuilt milestone
-> (start at **M2**). Follow its acceptance criteria, keep the pure modules pure
-> and fully tested, then stop and tell me how to test. Do not skip ahead to the
-> daemon or the speak path. Ask before installing anything with pacman/yay.
+> Read `docs/plans/voxpane-plan.md`. Everything is built except M9's VAD silence
+> auto-stop — implement that (webrtcvad; stop recording after ~2 s of quiet, in
+> `recorder.py`), keep the pure modules pure and fully tested, then stop and tell
+> me how to test. Ask before installing anything with pacman/yay.
 
 ## What this is
 
