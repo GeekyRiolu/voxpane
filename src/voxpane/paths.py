@@ -70,6 +70,12 @@ def record_pid_file() -> Path:
     return runtime_dir() / "record.pid"
 
 
+def record_state_file() -> Path:
+    """Tracks the in-flight recording (wav path, pid, start time) so `stop`
+    knows what `start` began."""
+    return runtime_dir() / "record.json"
+
+
 def ledger_file(session_id: str) -> Path:
     # Guard against a session_id that contains path separators.
     safe = session_id.replace("/", "_").replace("..", "_") or "default"

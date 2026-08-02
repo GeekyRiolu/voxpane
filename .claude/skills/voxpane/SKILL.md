@@ -53,7 +53,7 @@ The loop, once per milestone:
 | M | Owns | Key files |
 | --- | --- | --- |
 | M0 ✅ | environment checks | `doctor.py` |
-| M1 | one-shot record→transcribe→clipboard | `recorder.py`, `transcriber.py` |
+| M1 ✅ | one-shot record→transcribe→clipboard | `recorder.py`, `transcriber.py` |
 | M2 | toggle, keybind, notifications | `cli.py`, `notify.py`, `hypr/` |
 | M3 | delivery (tmux/focus/clipboard) | `deliver.py` |
 | M4 | command dictionary | `postprocess.py` |

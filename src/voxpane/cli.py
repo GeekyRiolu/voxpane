@@ -10,15 +10,13 @@ from __future__ import annotations
 
 import argparse
 import sys
-from typing import Sequence
+from collections.abc import Sequence
 
 from . import __version__, doctor
 
 # subcommand -> (milestone, what it will do). Keeps the "not yet built" surface
 # honest and points contributors at the right part of the plan.
 _PENDING: dict[str, tuple[str, str]] = {
-    "start": ("M1", "record one shot, transcribe, deliver the transcript"),
-    "stop": ("M1", "stop recording (SIGINT), transcribe, deliver"),
     "toggle": ("M2", "flip recording state — bind this to SUPER ALT V"),
     "daemon": ("M5", "run voxpaned with the model resident in RAM"),
     "speak": ("M8", "summarise a turn and speak it on the Echo Dot"),
@@ -40,8 +38,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("doctor", help="check the environment is ready [M0]")
 
-    sub.add_parser("start", help="record one shot, transcribe, deliver [M1]")
-    sub.add_parser("stop", help="stop recording and deliver [M1]")
+    sub.add_parser("start", help="record; then `voxpane stop` transcribes")
+    sub.add_parser("stop", help="stop, transcribe, copy transcript to clipboard")
     sub.add_parser("toggle", help="toggle recording — bind to a key [M2]")
     sub.add_parser("daemon", help="run the resident STT daemon [M5]")
 
@@ -51,7 +49,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     ledger = sub.add_parser("ledger", help="inspect the activity ledger [M6]")
     ledger.add_argument("action", nargs="?", choices=["append", "show", "prune"], default="show")
-    ledger.add_argument("--from-hook", action="store_true", help="read PostToolUse payload from stdin")
+    ledger.add_argument(
+        "--from-hook", action="store_true", help="read PostToolUse payload from stdin"
+    )
 
     sub.add_parser("install-hooks", help="install Claude Code hooks [M6]")
     sub.add_parser("install-bindings", help="install the Hyprland keybind [M2]")
@@ -73,6 +73,77 @@ def _pending(command: str) -> int:
     return 2
 
 
+def _log(message: str) -> None:
+    """Append a timestamp-free line to the state log; best-effort."""
+    from . import paths
+
+    try:
+        paths.ensure(paths.state_dir())
+        with paths.log_file().open("a") as fh:
+            fh.write(message + "\n")
+    except OSError:
+        pass
+
+
+def _cmd_start() -> int:
+    from . import config, recorder
+
+    try:
+        wav = recorder.start(config.load())
+    except RuntimeError as exc:
+        print(f"voxpane start: {exc}", file=sys.stderr)
+        return 1
+    print(f"🎙  recording → {wav}\n    speak, then run: voxpane stop")
+    return 0
+
+
+def _cmd_stop() -> int:
+    import time
+
+    from . import config, deliver, recorder, transcriber
+
+    cfg = config.load()
+    t0 = time.monotonic()
+
+    try:
+        wav = recorder.stop()
+    except RuntimeError as exc:
+        print(f"voxpane stop: {exc}", file=sys.stderr)
+        return 1
+    if wav is None:
+        print("voxpane stop: nothing was recording", file=sys.stderr)
+        return 1
+    if not wav.exists() or wav.stat().st_size == 0:
+        print(f"voxpane stop: no audio captured ({wav})", file=sys.stderr)
+        return 1
+
+    try:
+        transcript = transcriber.transcribe_file(wav, cfg)
+    except RuntimeError as exc:
+        print(f"voxpane stop: {exc}", file=sys.stderr)
+        return 1
+    if not transcript:
+        print("voxpane stop: empty transcript", file=sys.stderr)
+        return 1
+
+    copied = True
+    try:
+        deliver.to_clipboard(transcript)
+    except (RuntimeError, OSError) as exc:
+        copied = False
+        print(f"voxpane stop: clipboard failed: {exc}", file=sys.stderr)
+
+    elapsed = time.monotonic() - t0
+    _log(f"stop->clipboard {elapsed:.2f}s {len(transcript)}chars copied={copied}")
+    print(transcript)
+    note = "copied, " if copied else "NOT copied, "
+    print(f"\n[{note}{elapsed:.2f}s]", file=sys.stderr)
+    return 0
+
+
+_HANDLERS = {"doctor": lambda: doctor.main(), "start": _cmd_start, "stop": _cmd_stop}
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -80,8 +151,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command is None:
         parser.print_help()
         return 0
-    if args.command == "doctor":
-        return doctor.main()
+    handler = _HANDLERS.get(args.command)
+    if handler is not None:
+        return handler()
     return _pending(args.command)
 
 

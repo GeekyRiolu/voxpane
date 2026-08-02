@@ -198,7 +198,7 @@ voxpane is built in milestones (full spec: [docs/plans/voxpane-plan.md](docs/pla
 | | Milestone | Status |
 | --- | --- | --- |
 | **M0** | `voxpane doctor` — environment checks | ✅ done |
-| M1 | one-shot inbound (record → transcribe → clipboard) | ⏳ stubbed |
+| **M1** | one-shot inbound (record → transcribe → clipboard) | ✅ done |
 | M2 | toggle, keybind, recording notifications | ⏳ stubbed |
 | M3 | delivery backends (tmux / focus / clipboard) | ⏳ stubbed |
 | M4 | post-processing (command dictionary) | ⏳ stubbed |

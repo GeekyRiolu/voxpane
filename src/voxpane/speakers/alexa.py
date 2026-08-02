@@ -8,7 +8,7 @@ through. ``say`` = no chime, ``announce`` = chime.
 
 from __future__ import annotations
 
-from .base import Speaker, SpeakerError
+from .base import Speaker
 
 
 class AlexaSpeaker(Speaker):

@@ -10,7 +10,7 @@ a silent gap gets swallowed ("Done — three files" -> "ee files"). Autodetect t
 
 from __future__ import annotations
 
-from .base import Speaker, SpeakerError
+from .base import Speaker
 
 
 class BluetoothSpeaker(Speaker):

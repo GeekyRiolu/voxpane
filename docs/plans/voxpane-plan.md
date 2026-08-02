@@ -124,11 +124,11 @@ The build spec bakes this in as `lead_silence_ms`.
 
 ## Status
 
-The repo is **scaffolded**: the full layout below exists, **M0 (`voxpane doctor`)
-is implemented** as the reference milestone, and M1–M9 are stubbed — each module
-carries its contract, signatures and milestone tag. Config defaults, both hook
-scripts, `install.sh`, packaging and a green test suite are in place. See the
-`README.md` roadmap for the live status table.
+The repo is **scaffolded**: the full layout below exists. **M0 (`voxpane doctor`)
+and M1 (one-shot record → transcribe → clipboard) are implemented and tested**;
+M2–M9 are stubbed — each module carries its contract, signatures and milestone
+tag. Config defaults, both hook scripts, `install.sh`, packaging and a green test
+suite are in place. See the `README.md` roadmap for the live status table.
 
 ## Kickoff prompt
 
@@ -137,7 +137,7 @@ repo in Claude Code and already knows the milestone loop and the constraints. To
 build the next milestone, say:
 
 > Read `docs/plans/voxpane-plan.md` and implement the next unbuilt milestone
-> (start at **M1**). Follow its acceptance criteria, keep the pure modules pure
+> (start at **M2**). Follow its acceptance criteria, keep the pure modules pure
 > and fully tested, then stop and tell me how to test. Do not skip ahead to the
 > daemon or the speak path. Ask before installing anything with pacman/yay.
 

@@ -15,6 +15,8 @@ wasted keystroke.
 
 from __future__ import annotations
 
+import shutil
+import subprocess
 from typing import Any
 
 
@@ -24,5 +26,7 @@ def deliver(text: str, cfg: dict[str, Any], *, submit: bool = False) -> None:
 
 
 def to_clipboard(text: str) -> None:
-    """``wl-copy`` the text. The universal fallback; should not raise on success."""
-    raise NotImplementedError("deliver.to_clipboard — milestone M3")
+    """``wl-copy`` the text. The universal fallback (M1)."""
+    if not shutil.which("wl-copy"):
+        raise RuntimeError("wl-copy not found — install wl-clipboard (see: voxpane doctor)")
+    subprocess.run(["wl-copy"], input=text, text=True, check=True)
