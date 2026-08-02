@@ -18,6 +18,7 @@ from . import paths
 _SCRIPTS = {
     "PostToolUse": ("voxpane-post-tool.sh", "*"),
     "Stop": ("voxpane-stop.sh", None),
+    "Notification": ("voxpane-notification.sh", None),
 }
 
 

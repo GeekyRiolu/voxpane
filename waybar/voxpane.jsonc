@@ -1,0 +1,21 @@
+// voxpane waybar module (milestone M9).
+//
+// 1. Merge this "custom/voxpane" block into ~/.config/waybar/config(.jsonc) and
+//    add "custom/voxpane" to one of your modules-left/center/right arrays.
+// 2. Add the CSS at the bottom to ~/.config/waybar/style.css.
+//
+// It polls `voxpane status` once a second: a red dot while recording, a speaker
+// while speaking, nothing when idle.
+
+"custom/voxpane": {
+    "exec": "voxpane status",
+    "return-type": "json",
+    "interval": 1,
+    "format": "{}",
+    "tooltip": true
+}
+
+// --- style.css ---
+// #custom-voxpane.recording { color: #ff5555; }
+// #custom-voxpane.speaking  { color: #50fa7b; }
+// #custom-voxpane.idle      { color: inherit; }

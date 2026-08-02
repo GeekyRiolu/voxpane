@@ -87,6 +87,11 @@ def speak_lock_file() -> Path:
     return runtime_dir() / "speak.lock"
 
 
+def speaking_marker() -> Path:
+    """Present while a summary is being spoken (drives the waybar speaker icon)."""
+    return runtime_dir() / "speaking"
+
+
 def ensure(directory: Path) -> Path:
     """Create ``directory`` (and parents) if missing, then return it."""
     directory.mkdir(parents=True, exist_ok=True)

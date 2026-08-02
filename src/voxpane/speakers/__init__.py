@@ -56,19 +56,28 @@ def speak_with_fallback(text: str, cfg: dict[str, Any]) -> str:
     """Try each configured backend in order under the speak lock; return the name
     of the backend that spoke. Never raises — ``notify`` is the floor."""
     order = cfg["speak"].get("backends", ["alexa", "bluetooth", "notify"])
+    marker = paths.speaking_marker()
     with _speak_lock():
-        for name in order:
+        paths.ensure(marker.parent)
+        marker.touch()
+        try:
+            for name in order:
+                try:
+                    backend = get_backend(name, cfg)
+                except ValueError:
+                    continue
+                if not backend.available():
+                    continue
+                try:
+                    backend.speak(text)
+                    return name
+                except SpeakerError:
+                    continue
+            # Floor: guarantee something surfaces even if "notify" wasn't listed.
+            NotifySpeaker(cfg).speak(text)
+            return "notify"
+        finally:
             try:
-                backend = get_backend(name, cfg)
-            except ValueError:
-                continue
-            if not backend.available():
-                continue
-            try:
-                backend.speak(text)
-                return name
-            except SpeakerError:
-                continue
-        # Floor: guarantee something surfaces even if "notify" wasn't listed.
-        NotifySpeaker(cfg).speak(text)
-        return "notify"
+                marker.unlink()
+            except FileNotFoundError:
+                pass

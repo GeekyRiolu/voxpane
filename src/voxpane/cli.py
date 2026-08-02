@@ -16,11 +16,9 @@ from pathlib import Path
 
 from . import __version__, doctor, paths
 
-# subcommand -> (milestone, what it will do). Keeps the "not yet built" surface
-# honest and points contributors at the right part of the plan.
-_PENDING: dict[str, tuple[str, str]] = {
-    "vocab": ("M9", "build an initial_prompt addendum from the current repo"),
-}
+# subcommand -> (milestone, description) for any not-yet-built command. Empty now
+# that M0–M9 are implemented; kept as a graceful fallback.
+_PENDING: dict[str, tuple[str, str]] = {}
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -52,18 +50,21 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("install-hooks", help="install Claude Code hooks (ledger + speak)")
     sub.add_parser("install-bindings", help="install the Hyprland keybind (SUPER ALT V)")
 
-    vocab = sub.add_parser("vocab", help="build a repo vocabulary prompt [M9]")
+    vocab = sub.add_parser("vocab", help="build a repo vocabulary prompt for whisper")
     vocab.add_argument("--from-repo", action="store_true")
+
+    sub.add_parser("status", help="print recording/speaking state as waybar JSON")
+    chime = sub.add_parser("chime", help="alert on the Dot (Notification hook)")
+    chime.add_argument("text", nargs="?", default="Claude needs your input")
 
     return parser
 
 
 def _pending(command: str) -> int:
-    milestone, description = _PENDING[command]
+    milestone, description = _PENDING.get(command, ("?", "not implemented"))
     print(
-        f"voxpane {command}: not built yet — {description}.\n"
-        f"This is milestone {milestone}. See docs/plans/voxpane-plan.md, or run\n"
-        f"the 'voxpane' skill in Claude Code to implement it.",
+        f"voxpane {command}: not built yet — {description} ({milestone}). "
+        "See docs/plans/voxpane-plan.md.",
         file=sys.stderr,
     )
     return 2
@@ -359,6 +360,40 @@ def _cmd_ledger(args) -> int:
     return 0
 
 
+def _cmd_vocab(args) -> int:
+    from . import vocab
+
+    addendum = vocab.from_repo()
+    if not addendum:
+        print("voxpane vocab: no git-tracked files here", file=sys.stderr)
+        return 1
+    print("# Append to whisper.initial_prompt in ~/.config/voxpane/config.toml:")
+    print(addendum)
+    return 0
+
+
+def _cmd_status(args) -> int:
+    from . import recorder
+
+    if recorder.is_recording():
+        state = {"text": "🎙", "class": "recording", "tooltip": "voxpane: recording"}
+    elif paths.speaking_marker().exists():
+        state = {"text": "🔊", "class": "speaking", "tooltip": "voxpane: speaking"}
+    else:
+        state = {"text": "", "class": "idle", "tooltip": "voxpane: idle"}
+    print(json.dumps(state))
+    return 0
+
+
+def _cmd_chime(args) -> int:
+    from . import config, speakers
+
+    cfg = config.load()
+    if cfg["speak"]["enabled"]:
+        speakers.speak_with_fallback(args.text, cfg)
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -375,14 +410,18 @@ def main(argv: Sequence[str] | None = None) -> int:
         "daemon": _cmd_daemon,
         "install-bindings": _cmd_install_bindings,
     }
+    argful = {
+        "speak": _cmd_speak,
+        "install-hooks": _cmd_install_hooks,
+        "ledger": _cmd_ledger,
+        "vocab": _cmd_vocab,
+        "status": _cmd_status,
+        "chime": _cmd_chime,
+    }
     if cmd in simple:
         return simple[cmd]()
-    if cmd == "speak":
-        return _cmd_speak(args)
-    if cmd == "install-hooks":
-        return _cmd_install_hooks(args)
-    if cmd == "ledger":
-        return _cmd_ledger(args)
+    if cmd in argful:
+        return argful[cmd](args)
     return _pending(cmd)
 
 

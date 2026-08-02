@@ -56,3 +56,11 @@ def test_preview_collapses_and_caps():
     assert len(out) <= 40
     assert "\n" not in out
     assert out.endswith("…")
+
+
+def test_status_reports_recording(monkeypatch, capsys):
+    import json
+
+    monkeypatch.setattr(recorder, "is_recording", lambda: True)
+    assert cli.main(["status"]) == 0
+    assert json.loads(capsys.readouterr().out)["class"] == "recording"
