@@ -458,9 +458,13 @@ def _cmd_overlay(args) -> int:
         subprocess.run([*eww, "close", "voxpane"], capture_output=True)
         print("voxpane overlay: closed")
         return 0
-    subprocess.run([*eww, "daemon"], capture_output=True)
-    subprocess.run([*eww, "open", "voxpane"], capture_output=True)
-    print(f"voxpane overlay: open (eww, {config_dir}). Stop with: voxpane overlay stop")
+    # `eww open` auto-starts the daemon (backgrounded); do NOT run `eww daemon`,
+    # which blocks in the foreground when no daemon is running yet.
+    result = subprocess.run([*eww, "open", "voxpane"], capture_output=True, text=True)
+    if result.returncode != 0:
+        print(f"voxpane overlay: eww failed: {result.stderr.strip()}", file=sys.stderr)
+        return 1
+    print("voxpane overlay: open. Stop with: voxpane overlay stop")
     return 0
 
 

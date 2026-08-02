@@ -1,7 +1,8 @@
 ;; voxpane on-screen overlay for eww. Launch:  voxpane overlay   (stop: voxpane overlay stop)
 ;;
-;; Uses per-field polls (plain strings) so it does NOT depend on eww parsing JSON.
-;; If it still won't show, bump the geometry or drop the revealer (see README).
+;; Per-field polls (plain strings) so it does NOT depend on eww parsing JSON.
+;; No revealer: the pill always has a surface (reliable on Hyprland layer-shell)
+;; and is hidden when idle via opacity in eww.scss (.vox-idle).
 
 (defpoll vstate :interval "200ms" :initial "idle" "voxpane status --field state")
 (defpoll vtext  :interval "200ms" :initial ""     "voxpane status --field detail")
@@ -17,5 +18,4 @@
   :stacking "overlay"
   :exclusive false
   :focusable false
-  (revealer :transition "slideup" :duration "200ms" :reveal {vstate != "idle"}
-    (vox-pill)))
+  (vox-pill))

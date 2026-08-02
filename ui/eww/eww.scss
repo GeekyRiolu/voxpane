@@ -23,3 +23,6 @@
 .vox-thinking  .vox-dot { color: #e0af68; }
 .vox-speaking  .vox-dot { color: #9ece6a; }
 .vox-recording .vox-dot { color: #f7768e; }
+
+/* hidden when nothing is happening (pill keeps its surface, just invisible) */
+.vox-idle { opacity: 0; }
