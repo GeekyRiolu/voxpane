@@ -113,26 +113,20 @@ def is_listening() -> bool:
     return pid is not None and _alive(pid)
 
 
-def is_paused() -> bool:
-    """User has toggled listening off — the loop runs but ignores the mic."""
-    return paths.listen_paused_file().exists()
+def toggle_running() -> bool:
+    """Start the listener, or fully stop it. Returns True if it's now RUNNING.
 
-
-def toggle_pause() -> bool:
-    """Flip listening on/off (bind to a key). Returns True if now PAUSED.
-
-    Only sets a marker the loop watches, so behaviour is otherwise unchanged: the
-    same listener resumes doing exactly what it did before when toggled back on.
+    A real start/stop (not a pause) bound to a key: while off, no process runs and
+    nothing is transcribed, so it costs zero CPU. Turning it on captures the
+    terminal it was toggled from (if any) so dictation targets it precisely.
     """
-    from . import overlay
-
-    marker = paths.listen_paused_file()
-    if marker.exists():
-        _unlink(marker)
+    if is_listening():
+        stop()
         return False
-    paths.ensure(paths.runtime_dir())
-    marker.write_text("1")
-    overlay.set_state("idle")  # pet goes to sleep while off
+    window = _active_window()
+    if window and window.get("address") and _is_terminal_window(window):
+        _save_windows({"toggle": window})
+    _spawn_listener()
     return True
 
 
@@ -655,11 +649,11 @@ def run(cfg: dict[str, Any] | None = None) -> int:
                 break
             now = time.monotonic()
             if now - last_check >= poll:
-                # Toggled off by the user -> stay dormant (still reading the mic so
-                # resume is instant, just not acting on it). Otherwise capture when
-                # the wake word is armed (heard everywhere) or a dictation target is
-                # focused; handle_utterance decides dictate vs wake-gate per utterance.
-                active = not is_paused() and (wake != "" or focus_ok(cfg))
+                # Capture whenever the wake word is armed (so it's heard everywhere)
+                # or a dictation target is focused. handle_utterance decides per
+                # utterance whether to dictate or wake-gate, and applies the media
+                # gate for dictation.
+                active = wake != "" or focus_ok(cfg)
                 last_check = now
             if not active:
                 _overlay("idle")

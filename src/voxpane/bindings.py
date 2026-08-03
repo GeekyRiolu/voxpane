@@ -18,9 +18,8 @@ from pathlib import Path
 
 # (mods, key, description, command) — matched idempotently by command string.
 _BINDS = [
-    ("SUPER ALT", "V", "Toggle voxpane dictation", "voxpane toggle"),
+    ("SUPER ALT", "V", "Toggle voxpane listening on/off", "voxpane listen --toggle"),
     ("SUPER ALT", "S", "Stop voxpane speaking", "voxpane hush"),
-    ("SUPER ALT", "L", "Toggle voxpane listening on/off", "voxpane listen --toggle"),
 ]
 _HEADER = "# voxpane keybinds (managed by `voxpane install-bindings`)"
 

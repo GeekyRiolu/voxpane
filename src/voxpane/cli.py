@@ -59,7 +59,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     status = sub.add_parser("status", help="print recording/speaking state as waybar JSON")
     status.add_argument(
-        "--field", choices=["state", "detail", "class", "text", "sprite", "tooltip"],
+        "--field", choices=["state", "detail", "class", "text", "sprite", "tooltip", "running"],
         help="print just one field as plain text (for the eww overlay)",
     )
     ovl = sub.add_parser("overlay", help="show the Siri-style on-screen overlay (eww)")
@@ -485,7 +485,7 @@ def _cmd_vocab(args) -> int:
 
 
 def _cmd_status(args) -> int:
-    from . import overlay, recorder
+    from . import listen, overlay, recorder
 
     current = overlay.read_state()
     state, detail = current["state"], current["text"]
@@ -502,6 +502,8 @@ def _cmd_status(args) -> int:
         "detail": detail,
         "sprite": overlay.sprite_path(state),
         "tooltip": f"voxpane: {label}" + (f" — {detail}" if detail else ""),
+        # "1" while the hands-free listener is alive — the pet reveals/hides on it.
+        "running": "1" if listen.is_listening() else "0",
     }
     if getattr(args, "field", None):
         print(fields.get(args.field, ""))
@@ -594,15 +596,12 @@ def _cmd_listen(args) -> int:
         listen.stop()
         return 0
     if args.status:
-        if listen.is_paused():
-            print("paused")
-        else:
-            print("listening" if listen.is_listening() else "idle")
+        print("listening" if listen.is_listening() else "off")
         return 0
     if args.toggle:
-        paused = listen.toggle_pause()
-        _notify("Listening paused" if paused else "Listening resumed")
-        print("paused" if paused else "listening")
+        running = listen.toggle_running()
+        _notify("Listening on" if running else "Listening off")
+        print("listening" if running else "off")
         return 0
     session = _read_stdin_json().get("session_id", "default")
     if args.release:

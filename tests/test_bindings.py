@@ -16,7 +16,7 @@ def test_installs_into_existing_conf(tmp_path):
     assert result.status == "installed" and result.kind == "conf" and result.path == conf
     assert result.backup and result.backup.exists()
     text = conf.read_text()
-    assert "bindd = SUPER ALT, V, Toggle voxpane dictation, exec, voxpane toggle" in text
+    assert "V, Toggle voxpane listening on/off, exec, voxpane listen --toggle" in text
     assert "alacritty" in text  # original content preserved
 
 
@@ -28,7 +28,7 @@ def test_is_idempotent(tmp_path):
 
     assert first.status in ("installed", "created")
     assert second.status == "already"
-    assert (tmp_path / "bindings.conf").read_text().count("voxpane toggle") == 1
+    assert (tmp_path / "bindings.conf").read_text().count("voxpane listen --toggle") == 1
 
 
 def test_prefers_lua_and_writes_o_bind(tmp_path):
@@ -39,7 +39,7 @@ def test_prefers_lua_and_writes_o_bind(tmp_path):
 
     assert result.kind == "lua"
     lua_text = (tmp_path / "bindings.lua").read_text()
-    assert 'o.bind("SUPER ALT", "V", "exec, voxpane toggle"' in lua_text
+    assert 'o.bind("SUPER ALT", "V", "exec, voxpane listen --toggle"' in lua_text
     assert "voxpane" not in (tmp_path / "bindings.conf").read_text()  # conf untouched
 
 

@@ -445,15 +445,19 @@ def test_handle_utterance_skips_near_silence(tmp_path, monkeypatch):
     assert delivered == []
 
 
-# --- toggle: turn listening off/on with a key ---
+# --- toggle: fully start/stop the listener with a key ---
 
-def test_toggle_pause_round_trip(tmp_path, monkeypatch):
+def test_toggle_running_round_trip(tmp_path, monkeypatch):
     monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
-    assert listen.is_paused() is False
-    assert listen.toggle_pause() is True    # off
-    assert listen.is_paused() is True
-    assert listen.toggle_pause() is False   # on again
-    assert listen.is_paused() is False
+    state = {"on": False}
+    monkeypatch.setattr(listen, "is_listening", lambda: state["on"])
+    monkeypatch.setattr(listen, "_spawn_listener", lambda: state.__setitem__("on", True))
+    monkeypatch.setattr(listen, "stop", lambda: state.__setitem__("on", False))
+    monkeypatch.setattr(listen, "_active_window", lambda: None)  # nothing to capture
+    assert listen.toggle_running() is True    # was off -> spawn -> running
+    assert state["on"] is True
+    assert listen.toggle_running() is False   # was on -> stop -> off
+    assert state["on"] is False
 
 
 def test_hallucination_not_delivered_when_focused(tmp_path, monkeypatch):
