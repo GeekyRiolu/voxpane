@@ -16,6 +16,7 @@ live capture/transcribe glue needs a real mic to validate.
 
 from __future__ import annotations
 
+import array
 import json
 import os
 import re
@@ -342,6 +343,23 @@ def _frames(proc: subprocess.Popen) -> Iterator[bytes]:
         yield frame
 
 
+def _utterance_rms(pcm: bytes) -> float:
+    """Root-mean-square amplitude of s16 mono PCM (0..~32768).
+
+    Near-silence sits well under ~150; speech is several hundred+. Whisper
+    hallucinates ("Thank you for watching") on quiet/near-silent audio, so we use
+    this to skip transcription entirely below ``min_rms``.
+    """
+    usable = len(pcm) - (len(pcm) % 2)
+    if usable <= 0:
+        return 0.0
+    samples = array.array("h")
+    samples.frombytes(pcm[:usable])
+    if not samples:
+        return 0.0
+    return (sum(s * s for s in samples) / len(samples)) ** 0.5
+
+
 def _pcm_to_wav(pcm: bytes, path: Path) -> None:
     with wave.open(str(path), "wb") as wav:
         wav.setnchannels(1)
@@ -384,9 +402,10 @@ _HALLUCINATION_FRAGMENTS = [
     "see you in the next video", "see you in the next one", "see you next time",
     "see you next video", "in the next video", "in the next one",
     "don t forget to subscribe", "subscribe to my channel", "like and subscribe",
-    "please subscribe", "for watching", "thank you", "see you", "subscribe",
-    "everyone", "so much", "thanks", "bye bye", "please", "guys", "okay",
-    "bye", "you", "and", "so", "the",
+    "please subscribe", "for watching", "this video", "my channel", "this channel",
+    "thank you", "see you", "subscribe", "everyone", "so much", "thanks",
+    "watching", "video", "channel", "today", "this", "bye bye", "please",
+    "guys", "okay", "bye", "you", "and", "so", "the",
 ]
 
 # Precomputed word-lists, longest first (greedy tiling matches the longest run).
@@ -496,6 +515,11 @@ def handle_utterance(pcm: bytes, cfg: dict[str, Any]) -> str | None:
     """Transcribe and act on one utterance. Returns the delivered text, or None."""
     from . import config as config_mod
     from . import deliver, hush, overlay, postprocess, transcriber
+
+    # Source-side anti-hallucination: don't even ask Whisper about near-silent
+    # audio (a VAD misfire on room noise) — it invents "Thank you for watching".
+    if _utterance_rms(pcm) < cfg["listen"].get("min_rms", 150):
+        return None
 
     wav = paths.runtime_dir() / "listen-utt.wav"
     _pcm_to_wav(pcm, wav)

@@ -42,6 +42,7 @@ _SAFETY_DEFAULTS: dict[str, Any] = {
         "min_speech_ms": 300,
         "max_utterance_seconds": 30,
         "vad_aggressiveness": 2,
+        "min_rms": 150,
         "auto_submit": True,
         "conversational": True,
         "post_speak_guard_ms": 700,

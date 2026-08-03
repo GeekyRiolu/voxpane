@@ -43,6 +43,10 @@ endpoint_silence_ms = 1500      # auto-submit after this much trailing silence
 min_speech_ms = 300             # ignore blips shorter than this (coughs, clicks)
 max_utterance_seconds = 30      # hard cap on a single utterance
 vad_aggressiveness = 2          # webrtcvad 0..3 — higher filters more non-speech
+min_rms = 150                   # skip transcription below this loudness (s16 RMS).
+                                # Whisper invents "Thank you for watching" from
+                                # near-silence; raise if it still leaks, lower if
+                                # it drops your quiet speech.
 auto_submit = true              # press Enter after delivering (hands-free)
 conversational = true           # speak Claude's response, and relax the gate
 post_speak_guard_ms = 700       # ignore the mic this long after the Dot speaks

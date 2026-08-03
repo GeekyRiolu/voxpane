@@ -2,9 +2,14 @@
 
 from __future__ import annotations
 
+import array
 from types import SimpleNamespace
 
 from voxpane import config, listen, paths
+
+# Loud dummy PCM (constant amplitude 6000) so utterances clear the min_rms gate;
+# transcription is stubbed in these tests, so only the loudness matters.
+_LOUD = array.array("h", [6000] * 640).tobytes()
 
 
 def _feed(endpointer, speech_pattern):
@@ -337,7 +342,7 @@ def test_dictates_when_terminal_focused(tmp_path, monkeypatch):
     got = {}
     monkeypatch.setattr("voxpane.deliver.deliver",
                         lambda text, cfg, submit=True: got.update(text=text, submit=submit))
-    assert listen.handle_utterance(b"\x00" * 640, _HYBRID_CFG) == "list the files"
+    assert listen.handle_utterance(_LOUD, _HYBRID_CFG) == "list the files"
     assert got["text"] == "list the files"  # no wake word needed when focused
 
 
@@ -346,7 +351,7 @@ def test_terminal_focus_strips_optional_wake_word(tmp_path, monkeypatch):
     got = {}
     monkeypatch.setattr("voxpane.deliver.deliver",
                         lambda text, cfg, submit=True: got.update(text=text))
-    listen.handle_utterance(b"\x00" * 640, _HYBRID_CFG)
+    listen.handle_utterance(_LOUD, _HYBRID_CFG)
     assert got["text"] == "run the tests"
 
 
@@ -355,7 +360,7 @@ def test_no_dictation_over_media_when_focused(tmp_path, monkeypatch):
     got = {}
     monkeypatch.setattr("voxpane.deliver.deliver",
                         lambda text, cfg, submit=True: got.update(text=text))
-    assert listen.handle_utterance(b"\x00" * 640, _HYBRID_CFG) is None
+    assert listen.handle_utterance(_LOUD, _HYBRID_CFG) is None
     assert got == {}
 
 
@@ -364,7 +369,7 @@ def test_unaddressed_speech_ignored_when_browser_focused(tmp_path, monkeypatch):
     monkeypatch.setattr(listen, "_pause_media", lambda: None)
     calls = []
     monkeypatch.setattr(listen, "_wake_deliver", lambda text, cfg: calls.append(text))
-    assert listen.handle_utterance(b"\x00" * 640, _HYBRID_CFG) is None
+    assert listen.handle_utterance(_LOUD, _HYBRID_CFG) is None
     assert calls == []  # no wake word + not focused -> ignored
 
 
@@ -373,7 +378,7 @@ def test_wake_delivers_when_browser_focused(tmp_path, monkeypatch):
     monkeypatch.setattr(listen, "_pause_media", lambda: None)
     calls = []
     monkeypatch.setattr(listen, "_wake_deliver", lambda text, cfg: calls.append(text))
-    assert listen.handle_utterance(b"\x00" * 640, _HYBRID_CFG) == "open the readme"
+    assert listen.handle_utterance(_LOUD, _HYBRID_CFG) == "open the readme"
     assert calls == ["open the readme"]
 
 
@@ -388,7 +393,7 @@ def test_captured_claude_precise_not_a_stray_terminal(tmp_path, monkeypatch):
     calls = []
     monkeypatch.setattr(listen, "_wake_deliver", lambda text, cfg: calls.append(text))
     # not the captured Claude terminal + no wake word -> ignored (won't type into htop)
-    assert listen.handle_utterance(b"\x00" * 640, _HYBRID_CFG) is None
+    assert listen.handle_utterance(_LOUD, _HYBRID_CFG) is None
     assert calls == []
 
 
@@ -416,10 +421,34 @@ def test_ignore_phrases_are_additive(monkeypatch):
     assert not listen._is_ignorable("open the file", cfg)
 
 
+# --- source-side loudness gate (don't feed Whisper near-silence) ---
+
+def test_utterance_rms_distinguishes_silence_from_speech():
+    silence = b"\x00\x00" * 1600
+    loud = array.array("h", [6000] * 1600).tobytes()
+    assert listen._utterance_rms(silence) < 5
+    assert 5900 < listen._utterance_rms(loud) < 6100
+    assert listen._utterance_rms(b"") == 0.0
+
+
+def test_handle_utterance_skips_near_silence(tmp_path, monkeypatch):
+    _prep_utterance(monkeypatch, tmp_path, transcript="Thank you for watching", window=_TERM)
+    reached = []
+    monkeypatch.setattr("voxpane.transcriber.transcribe",
+                        lambda wav, cfg: reached.append(1) or "x")
+    delivered = []
+    monkeypatch.setattr("voxpane.deliver.deliver",
+                        lambda text, cfg, submit=True: delivered.append(text))
+    silence = b"\x00\x00" * 1600
+    assert listen.handle_utterance(silence, _HYBRID_CFG) is None
+    assert reached == []      # Whisper never even asked about the silence
+    assert delivered == []
+
+
 def test_hallucination_not_delivered_when_focused(tmp_path, monkeypatch):
     _prep_utterance(monkeypatch, tmp_path, transcript="Thanks for watching!", window=_TERM)
     delivered = []
     monkeypatch.setattr("voxpane.deliver.deliver",
                         lambda text, cfg, submit=True: delivered.append(text))
-    assert listen.handle_utterance(b"\x00" * 640, _HYBRID_CFG) is None
+    assert listen.handle_utterance(_LOUD, _HYBRID_CFG) is None
     assert delivered == []  # the video's outro never reaches Claude
