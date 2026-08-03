@@ -202,10 +202,15 @@ voxpane install-listener   # writes + enables a systemd --user service, sets alw
 This starts one listener at login (auto-restarts on crash) that outlives every
 session. Stop it with `systemctl --user disable --now voxpane-listen`.
 
-**On-screen overlay.** `voxpane overlay` shows a Siri-style pill at the bottom of
-the screen while it's listening/thinking/speaking (needs [eww](https://github.com/elkowar/eww);
-stop with `voxpane overlay stop`). It's driven by `voxpane status` JSON, so the
-[waybar module](waybar/voxpane.jsonc) reads the same state.
+**On-screen pixel pet.** `voxpane overlay` puts a little pixel critter in the
+corner (needs [eww](https://github.com/elkowar/eww); stop with `voxpane overlay
+stop`). It **slides up when listening is on and down when off**, and reacts as it
+listens/thinks/speaks. It's driven by `voxpane status`, so the
+[waybar module](waybar/voxpane.jsonc) can read the same state. Add
+`exec-once = voxpane overlay` to your compositor autostart to keep it around.
+Make your own critter: drop sprites in `~/.config/voxpane/pet/{idle,listening,
+thinking,speaking}.{gif,png}` — there's a ready-to-use image-generation prompt in
+[`ui/pet/sprite-prompt.md`](ui/pet/sprite-prompt.md).
 
 ## Configuration
 
