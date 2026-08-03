@@ -14,6 +14,9 @@ from voxpane import overlay, paths
 @pytest.fixture(autouse=True)
 def _runtime(tmp_path, monkeypatch):
     monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
+    # Isolate from any real ~/.config/voxpane/pet overrides so shipped-sprite tests
+    # are deterministic (tests that need an override set XDG_CONFIG_HOME themselves).
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
 
 
 def test_set_and_read_state():

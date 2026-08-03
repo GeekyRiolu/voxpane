@@ -667,12 +667,14 @@ def run(cfg: dict[str, Any] | None = None) -> int:
             if now - last_speak < guard:
                 endpointer.reset()
                 continue
-            _overlay("listening")
-            utterance = endpointer.process(frame, vad.is_speech(frame, RATE))
+            is_speech = vad.is_speech(frame, RATE)
+            utterance = endpointer.process(frame, is_speech)
             if utterance is not None:
-                handle_utterance(utterance, cfg)  # sets "thinking" + the transcript
-                overlay.set_state("listening")
-                shown = "listening"
+                handle_utterance(utterance, cfg)  # sets "thinking" while it works
+                shown = "thinking"
+            # Rest calmly as "idle" (the pet sleeps); only perk to "listening" while
+            # actually capturing speech, so it isn't constantly alert/twitching.
+            _overlay("listening" if endpointer.active or is_speech else "idle")
     finally:
         proc.terminate()
         # Don't clobber a newer listener's pid file on a rapid restart: only clear
