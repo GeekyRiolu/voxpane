@@ -445,6 +445,17 @@ def test_handle_utterance_skips_near_silence(tmp_path, monkeypatch):
     assert delivered == []
 
 
+# --- toggle: turn listening off/on with a key ---
+
+def test_toggle_pause_round_trip(tmp_path, monkeypatch):
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
+    assert listen.is_paused() is False
+    assert listen.toggle_pause() is True    # off
+    assert listen.is_paused() is True
+    assert listen.toggle_pause() is False   # on again
+    assert listen.is_paused() is False
+
+
 def test_hallucination_not_delivered_when_focused(tmp_path, monkeypatch):
     _prep_utterance(monkeypatch, tmp_path, transcript="Thanks for watching!", window=_TERM)
     delivered = []

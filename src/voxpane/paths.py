@@ -102,6 +102,12 @@ def listen_sessions_file() -> Path:
     return runtime_dir() / "listen-sessions"
 
 
+def listen_paused_file() -> Path:
+    """Present when the user has paused listening (via the toggle key). The loop
+    keeps running but ignores the mic until it's removed."""
+    return runtime_dir() / "listen-paused"
+
+
 def play_pid_file() -> Path:
     """PID of the in-progress TTS playback, so `voxpane hush` can stop it."""
     return runtime_dir() / "play.pid"

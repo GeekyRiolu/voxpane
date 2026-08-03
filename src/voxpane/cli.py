@@ -74,6 +74,7 @@ def build_parser() -> argparse.ArgumentParser:
     grp.add_argument("--ensure", action="store_true", help="register a session; start if needed")
     grp.add_argument("--release", action="store_true", help="unregister a session; stop if last")
     grp.add_argument("--stop", action="store_true", help="stop the listener now")
+    grp.add_argument("--toggle", action="store_true", help="pause/resume listening (bind to a key)")
     grp.add_argument("--status", action="store_true", help="print listening/idle")
 
     return parser
@@ -571,6 +572,18 @@ def _cmd_hush(args) -> int:
     return 0
 
 
+def _notify(body: str) -> None:
+    """Best-effort desktop toast, so a toggle keypress gives visible feedback."""
+    import shutil
+    import subprocess
+
+    if shutil.which("notify-send"):
+        subprocess.run(
+            ["notify-send", "-t", "1500", "-a", "voxpane", "voxpane", body],
+            capture_output=True,
+        )
+
+
 def _cmd_listen(args) -> int:
     from . import config, listen
 
@@ -581,7 +594,15 @@ def _cmd_listen(args) -> int:
         listen.stop()
         return 0
     if args.status:
-        print("listening" if listen.is_listening() else "idle")
+        if listen.is_paused():
+            print("paused")
+        else:
+            print("listening" if listen.is_listening() else "idle")
+        return 0
+    if args.toggle:
+        paused = listen.toggle_pause()
+        _notify("Listening paused" if paused else "Listening resumed")
+        print("paused" if paused else "listening")
         return 0
     session = _read_stdin_json().get("session_id", "default")
     if args.release:
