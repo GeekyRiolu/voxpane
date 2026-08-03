@@ -520,6 +520,26 @@ def _eww_config_dir() -> Path | None:
     return None
 
 
+def _kill_stray_eww(config_dir: str) -> None:
+    """SIGKILL any lingering eww daemon started with our config, so the pet is
+    single-instance (eww daemons have been seen to stack across restarts)."""
+    import os
+    import signal
+    import subprocess
+
+    try:
+        out = subprocess.run(["pgrep", "-af", "eww"], capture_output=True, text=True).stdout
+    except OSError:
+        return
+    for line in out.splitlines():
+        pid, _, cmd = line.partition(" ")
+        if pid.isdigit() and config_dir in cmd:
+            try:
+                os.kill(int(pid), signal.SIGKILL)
+            except (OSError, ValueError):
+                pass
+
+
 def _cmd_overlay(args) -> int:
     import shutil
     import subprocess
@@ -543,6 +563,11 @@ def _cmd_overlay(args) -> int:
         subprocess.run([*eww, "kill"], capture_output=True)
         print("voxpane overlay: closed")
         return 0
+    # Single instance: kill any pet already up (eww daemons can stack) before
+    # starting a fresh one — so only ever one remains open.
+    subprocess.run([*eww, "kill"], capture_output=True)
+    _kill_stray_eww(str(config_dir))
+    time.sleep(0.3)  # let the old socket release
     # `eww daemon` blocks in the foreground, so start it DETACHED, then open.
     subprocess.Popen(
         [*eww, "daemon"],
