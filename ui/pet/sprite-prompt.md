@@ -34,22 +34,48 @@ below still works.
 
 ---
 
-## 2. One-shot sprite sheet (fastest — all four states at once)
+## 2. Full animation sheet — one prompt → the whole animated pet
 
-> `<paste §1>`
-> Draw a **2×2 sprite sheet**, four evenly-spaced cells on one transparent canvas,
-> the SAME character in each cell, same size and palette:
-> 1. **IDLE** — eyes closed as two calm curved lines, body relaxed and slightly
->    squished, spark small and dim, a tiny "z" — napping.
-> 2. **LISTENING** — standing tall and alert, eyes wide and bright, spark enlarged
->    and glowing, a small sound-wave arc on each side — paying close attention.
-> 3. **THINKING** — eyes glancing up, a little thought bubble with three dots above
->    its head, one stubby hand near its chin — pondering.
-> 4. **SPEAKING** — cheerful, mouth open in a small "o", a few sound-wave arcs
->    radiating from the mouth, spark bright — talking.
-> Clean pixel art, transparent background, no labels or text.
+The "properly animated" version: **5 rows (states) × 4 columns (frames)**, each row
+a looping animation. Paste §1, then this:
 
-Then crop the four cells into the four files above.
+> Create a pixel-art **ANIMATION SHEET** on one fully transparent background: a tidy
+> grid of **5 rows × 4 columns = 20 cells**, evenly spaced, every cell the same size.
+> Every cell is the SAME character (identical proportions, palette and 1px outline)
+> — only the pose/expression changes. Each ROW is one looping animation, read
+> left → right:
+>
+> - **Row 1 — IDLE (sleepy breathing):** eyes closed (two calm curved lines) the
+>   whole row. F1 body at rest; F2 body 1px shorter with a tiny "z"; F3 body at rest;
+>   F4 body 1px taller. Spark small and dim.
+> - **Row 2 — LISTENING (alert bounce):** eyes wide and bright, spark enlarged, a
+>   sound-wave arc on each side. F1 at rest; F2 hopped up ~2px, arcs wider, spark
+>   brightest; F3 at rest; F4 dipped ~1px.
+> - **Row 3 — THINKING (pondering):** eyes glancing up, one stubby hand near the
+>   chin, a thought bubble above. F1 bubble with one dot; F2 two dots; F3 three dots;
+>   F4 three dots + a tiny sparkle.
+> - **Row 4 — SPEAKING (talking):** cheerful, spark bright. F1 mouth a small "o" with
+>   short sound waves; F2 mouth wide open with long waves; F3 mouth a small "o"; F4
+>   closed smile.
+> - **Row 5 — OFF (powered down):** curled up asleep, eyes closed, the spark OFF
+>   (grey/gone), colours muted. F1 curled at rest; F2 a slow "z"; F3 curled; F4 a
+>   faint fading "z". It should read as "switched off."
+>
+> Chunky pixel art, hard edges, **no anti-aliasing, no gradients, no labels or text,
+> no drop shadows**, fully transparent background. The character must be
+> **pixel-identical from cell to cell** except for the described change.
+
+Slice it into rows → frames → one GIF per state (§7 has the commands). Suggested
+speeds: **idle 4 fps, listening 10 fps, thinking 3 fps, speaking 8 fps, off 2 fps**.
+
+> **If the 20 cells drift** (many models struggle to keep a character identical
+> across a big grid), do it **row-by-row** instead: use the per-state strip prompts
+> in §4 with a reference image (§6) — that's the reliable way to get clean loops.
+
+### Quick static version (no animation)
+
+Same idea but a **2×2 sheet, one frame per state** (idle / listening / thinking /
+speaking) — good enough if you just want four still PNGs. Crop into the four files.
 
 ---
 
