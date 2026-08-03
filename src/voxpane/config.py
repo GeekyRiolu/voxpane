@@ -56,6 +56,7 @@ _SAFETY_DEFAULTS: dict[str, Any] = {
         "wake_aliases": ["vox pane", "vox pain", "box pane", "fox pane", "voxpin", "vox pan"],
         "pause_media_on_wake": True,
         "wake_open_command": "claude --dangerously-skip-permissions --model opus",
+        "wake_base_dir": "~",
         "terminal": "",
         "always_on": False,
     },

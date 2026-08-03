@@ -492,40 +492,50 @@ def _detect_terminal(cfg: dict[str, Any]) -> list[str] | None:
     return None
 
 
-def _open_claude(request: str, cfg: dict[str, Any]) -> bool:
+def _resolve_folder(request: str, base: str) -> str:
+    """Resolve a spoken folder name to an absolute path under ``base`` (default
+    ~/Work). Empty request or no match -> ``base`` itself; matching is fuzzy so
+    imperfect transcription still lands on the right repo."""
+    import difflib
+
+    base = os.path.expanduser(base or "~")
+    if not os.path.isdir(base):
+        base = os.path.expanduser("~")
+    req = _normalize(request)
+    try:
+        subdirs = [d for d in os.listdir(base) if os.path.isdir(os.path.join(base, d))]
+    except OSError:
+        return base
+    if not req or not subdirs:
+        return base
+    norm = {_normalize(d): d for d in subdirs}
+    if req in norm:                                    # exact (normalized) match
+        return os.path.join(base, norm[req])
+    for nd, d in norm.items():                         # substring either way
+        if req in nd or nd in req:
+            return os.path.join(base, d)
+    last = req.split()[-1]                             # last spoken word ~ repo name
+    for nd, d in norm.items():
+        if last and (last in nd.split() or last in nd):
+            return os.path.join(base, d)
+    match = difflib.get_close_matches(req, list(norm), n=1, cutoff=0.6)
+    return os.path.join(base, norm[match[0]]) if match else base
+
+
+def _wake_open_session(request: str, cfg: dict[str, Any]) -> None:
+    """Open a NEW terminal running Claude, cd'd into the folder named in ``request``
+    (resolved under ``wake_base_dir``). Always a fresh session, per request."""
     terminal = _detect_terminal(cfg)
     if terminal is None:
-        return False
-    command = cfg["listen"].get("wake_open_command", "claude")
+        return
+    lc = cfg["listen"]
+    command = lc.get("wake_open_command", "claude --dangerously-skip-permissions --model opus")
+    folder = _resolve_folder(request, lc.get("wake_base_dir", "~/Work"))
     subprocess.Popen(
-        [*terminal, "sh", "-lc", f"{command} {shlex.quote(request)}"],
+        [*terminal, "sh", "-lc", f"cd {shlex.quote(folder)} && {command}"],
         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
         start_new_session=True,
     )
-    return True
-
-
-def _wake_deliver(request: str, cfg: dict[str, Any]) -> None:
-    from . import deliver
-
-    # Prefer an existing Claude *terminal*: focus it (Hyprland), then paste + submit.
-    # Never a captured non-terminal (e.g. a browser) — open a fresh Claude session
-    # instead of pasting the request into the wrong app.
-    window = next(
-        (w for w in _load_windows().values() if w.get("address") and _is_terminal_window(w)),
-        None,
-    )
-    if window and shutil.which("hyprctl"):
-        subprocess.run(
-            ["hyprctl", "dispatch", "focuswindow", f"address:{window['address']}"],
-            capture_output=True,
-        )
-        time.sleep(0.2)
-        focus_cfg = {**cfg, "delivery": {**cfg["delivery"], "mode": "focus"}}
-        deliver.deliver(request, focus_cfg, submit=True)
-        return
-    if not _open_claude(request, cfg):  # no session and no terminal — last resort
-        deliver.deliver(request, cfg, submit=True)
 
 
 def handle_utterance(pcm: bytes, cfg: dict[str, Any]) -> str | None:
@@ -554,42 +564,33 @@ def handle_utterance(pcm: bytes, cfg: dict[str, Any]) -> str | None:
     lc = cfg["listen"]
     wake = lc.get("wake_word", "").strip()
 
-    # Focus decides the mode, per utterance:
-    #  * Claude terminal focused  -> free dictation, no wake word (like a headset).
-    #  * anything else / no session -> the wake word gates everything, then we pause
-    #    media and route to Claude (opening a terminal if there isn't one).
+    # The wake word is an explicit command that ALWAYS opens a fresh Claude session,
+    # regardless of what's focused: say "voxpane <folder>" and we open a new terminal
+    # + Claude in that repo under wake_base_dir (~/Work). Checked before dictation so
+    # it works even while you're focused on an existing Claude terminal.
+    if wake:
+        request = strip_wake_word(text, wake, lc.get("wake_aliases", []))
+        if request is not None:  # addressed to voxpane
+            if lc.get("pause_media_on_wake", True):
+                _pause_media()
+            overlay.set_state("thinking", request or "new session")
+            _wake_open_session(request, cfg)
+            return request or "(opened Claude session)"
+
+    # No wake word: free dictation, but only into a focused Claude terminal.
     if _dictation_target_focused(cfg):
-        # Don't dictate over other audio (a video) unless configured to talk over it.
         if lc.get("pause_on_playback", True) and _media_playing():
-            return None
-        request = text
-        if wake:  # tolerate a wake word said out of habit; otherwise dictate as-is
-            stripped = strip_wake_word(text, wake, lc.get("wake_aliases", []))
-            if stripped:
-                request = stripped
-        if is_stop_word(request, cfg):
+            return None  # don't dictate over a video
+        if is_stop_word(text, cfg):
             hush.hush()
             return None
-        overlay.set_state("thinking", request)
-        rewritten = postprocess.apply(request, config_mod.load_commands(), cfg)
+        overlay.set_state("thinking", text)
+        rewritten = postprocess.apply(text, config_mod.load_commands(), cfg)
         submit = lc.get("auto_submit", True) or rewritten.submit
         deliver.deliver(rewritten.text, cfg, submit=submit)
         return rewritten.text
 
-    # Not focused on Claude: the wake word is required.
-    if not wake:
-        return None
-    request = strip_wake_word(text, wake, lc.get("wake_aliases", []))
-    if request is None:
-        return None  # not addressed to voxpane — ignore
-    if lc.get("pause_media_on_wake", True):
-        _pause_media()
-    if not request:
-        return None  # just the wake word, no request yet
-    overlay.set_state("thinking", request)
-    rewritten = postprocess.apply(request, config_mod.load_commands(), cfg)
-    _wake_deliver(rewritten.text, cfg)
-    return rewritten.text
+    return None  # not addressed to voxpane and not focused on a Claude terminal
 
 
 def run(cfg: dict[str, Any] | None = None) -> int:
@@ -631,11 +632,11 @@ def run(cfg: dict[str, Any] | None = None) -> int:
     paths.listener_pid_file().write_text(str(os.getpid()))
     stop_requested = {"v": False}
     signal.signal(signal.SIGTERM, lambda *_: stop_requested.__setitem__("v", True))
-    proc = subprocess.Popen(_audio_command(cfg), stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
     last_speak = 0.0
     last_check = 0.0
     active = True
     shown = ""
+    proc: subprocess.Popen | None = None
 
     def _overlay(state: str) -> None:
         nonlocal shown
@@ -644,44 +645,55 @@ def run(cfg: dict[str, Any] | None = None) -> int:
             shown = state
 
     try:
-        for frame in _frames(proc):
+        # Reconnect loop: if the mic stream ends (the device drops on suspend/
+        # resume), reopen it rather than exiting — the listener survives sleep.
+        while not stop_requested["v"]:
+            proc = subprocess.Popen(
+                _audio_command(cfg), stdout=subprocess.PIPE, stderr=subprocess.DEVNULL
+            )
+            for frame in _frames(proc):
+                if stop_requested["v"]:
+                    break
+                now = time.monotonic()
+                if now - last_check >= poll:
+                    # Capture whenever the wake word is armed (heard everywhere) or a
+                    # dictation target is focused; handle_utterance decides per
+                    # utterance whether to open a session, dictate, or ignore.
+                    active = wake != "" or focus_ok(cfg)
+                    last_check = now
+                if not active:
+                    _overlay("idle")
+                    endpointer.reset()
+                    continue
+                # Anti-feedback: don't listen to the Dot, or its echo tail.
+                if paths.speaking_marker().exists():
+                    last_speak = now
+                    endpointer.reset()
+                    continue
+                if now - last_speak < guard:
+                    endpointer.reset()
+                    continue
+                is_speech = vad.is_speech(frame, RATE)
+                utterance = endpointer.process(frame, is_speech)
+                if utterance is not None:
+                    handle_utterance(utterance, cfg)  # sets "thinking" while it works
+                    shown = "thinking"
+                # Rest calmly as "idle" (the pet sleeps); perk to "listening" only
+                # while actually capturing speech, so it isn't constantly twitching.
+                _overlay("listening" if endpointer.active or is_speech else "idle")
+            proc.terminate()
+            proc = None
             if stop_requested["v"]:
                 break
-            now = time.monotonic()
-            if now - last_check >= poll:
-                # Capture whenever the wake word is armed (so it's heard everywhere)
-                # or a dictation target is focused. handle_utterance decides per
-                # utterance whether to dictate or wake-gate, and applies the media
-                # gate for dictation.
-                active = wake != "" or focus_ok(cfg)
-                last_check = now
-            if not active:
-                _overlay("idle")
-                endpointer.reset()
-                continue
-            # Anti-feedback: don't listen to the Dot, or its echo tail.
-            if paths.speaking_marker().exists():
-                last_speak = now
-                endpointer.reset()
-                continue
-            if now - last_speak < guard:
-                endpointer.reset()
-                continue
-            is_speech = vad.is_speech(frame, RATE)
-            utterance = endpointer.process(frame, is_speech)
-            if utterance is not None:
-                handle_utterance(utterance, cfg)  # sets "thinking" while it works
-                shown = "thinking"
-            # Rest calmly as "idle" (the pet sleeps); only perk to "listening" while
-            # actually capturing speech, so it isn't constantly alert/twitching.
-            _overlay("listening" if endpointer.active or is_speech else "idle")
+            _overlay("idle")
+            endpointer.reset()
+            time.sleep(1.0)  # mic stream ended (suspend?) — pause, then reopen it
     finally:
-        proc.terminate()
+        if proc is not None:
+            proc.terminate()
         # Don't clobber a newer listener's pid file on a rapid restart: only clear
         # the file if it still names us.
         if _read_pid(paths.listener_pid_file()) == os.getpid():
             _unlink(paths.listener_pid_file())
         overlay.clear()
-    # Clean SIGTERM stop -> 0 (systemd won't restart). Loop ending any other way
-    # (the mic pipe died) -> 1 so `Restart=on-failure` brings the listener back.
-    return 0 if stop_requested["v"] else 1
+    return 0

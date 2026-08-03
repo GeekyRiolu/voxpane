@@ -586,6 +586,24 @@ def _notify(body: str) -> None:
         )
 
 
+def _ensure_overlay_running() -> None:
+    """Start the eww pet if it isn't up — so SUPER ALT V restores it after a
+    suspend/resume (or any crash) that took the overlay down with it."""
+    import shutil
+    import subprocess
+
+    if not shutil.which("eww") or not shutil.which("pgrep"):
+        return
+    if subprocess.run(["pgrep", "-x", "eww"], capture_output=True).returncode == 0:
+        return  # already running
+    exe = shutil.which("voxpane") or str(Path.home() / ".local" / "bin" / "voxpane")
+    subprocess.Popen(
+        [exe, "overlay"],
+        stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        start_new_session=True,
+    )
+
+
 def _cmd_listen(args) -> int:
     from . import config, listen
 
@@ -600,6 +618,8 @@ def _cmd_listen(args) -> int:
         return 0
     if args.toggle:
         running = listen.toggle_running()
+        if running:
+            _ensure_overlay_running()  # restore the pet too (e.g. after suspend)
         _notify("Listening on" if running else "Listening off")
         print("listening" if running else "off")
         return 0

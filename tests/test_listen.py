@@ -245,15 +245,15 @@ def test_capture_window_remembers_terminal(tmp_path, monkeypatch):
     assert listen._load_windows()["s1"]["address"] == "0x2"
 
 
-def test_wake_deliver_opens_terminal_when_only_browser_captured(monkeypatch):
-    monkeypatch.setattr(
-        listen, "_load_windows",
-        lambda: {"s1": {"address": "0x1", "class": "chromium", "title": "a video"}},
-    )
-    calls = []
-    monkeypatch.setattr(listen, "_open_claude", lambda req, cfg: calls.append(req) or True)
-    listen._wake_deliver("run the tests", {"delivery": {"mode": "focus"}, "listen": {}})
-    assert calls == ["run the tests"]  # opened a fresh session, did not paste into the browser
+def test_resolve_folder_matches_repo_by_voice(tmp_path):
+    for name in ("voxpane", "SETU_v2", "agent_bot"):
+        (tmp_path / name).mkdir()
+    base = str(tmp_path)
+    assert listen._resolve_folder("voxpane", base) == str(tmp_path / "voxpane")   # exact
+    assert listen._resolve_folder("setu", base) == str(tmp_path / "SETU_v2")       # substring
+    assert listen._resolve_folder("open the voxpane repo", base) == str(tmp_path / "voxpane")
+    assert listen._resolve_folder("", base) == base                               # bare -> base
+    assert listen._resolve_folder("nothing like this", base) == base              # no match -> base
 
 
 def test_stop_removes_its_own_pidfile(tmp_path, monkeypatch):
@@ -346,13 +346,16 @@ def test_dictates_when_terminal_focused(tmp_path, monkeypatch):
     assert got["text"] == "list the files"  # no wake word needed when focused
 
 
-def test_terminal_focus_strips_optional_wake_word(tmp_path, monkeypatch):
-    _prep_utterance(monkeypatch, tmp_path, transcript="voxpane run the tests", window=_TERM)
-    got = {}
+def test_wake_opens_session_even_when_terminal_focused(tmp_path, monkeypatch):
+    # Wake word wins over dictation: "voxpane <repo>" opens a session, doesn't type.
+    _prep_utterance(monkeypatch, tmp_path, transcript="voxpane voxpane", window=_TERM)
+    monkeypatch.setattr(listen, "_pause_media", lambda: None)
+    opened, delivered = [], []
+    monkeypatch.setattr(listen, "_wake_open_session", lambda req, cfg: opened.append(req))
     monkeypatch.setattr("voxpane.deliver.deliver",
-                        lambda text, cfg, submit=True: got.update(text=text))
+                        lambda text, cfg, submit=True: delivered.append(text))
     listen.handle_utterance(_LOUD, _HYBRID_CFG)
-    assert got["text"] == "run the tests"
+    assert opened == ["voxpane"] and delivered == []
 
 
 def test_no_dictation_over_media_when_focused(tmp_path, monkeypatch):
@@ -368,18 +371,18 @@ def test_unaddressed_speech_ignored_when_browser_focused(tmp_path, monkeypatch):
     _prep_utterance(monkeypatch, tmp_path, transcript="what time is it", window=_BROWSER)
     monkeypatch.setattr(listen, "_pause_media", lambda: None)
     calls = []
-    monkeypatch.setattr(listen, "_wake_deliver", lambda text, cfg: calls.append(text))
+    monkeypatch.setattr(listen, "_wake_open_session", lambda req, cfg: calls.append(req))
     assert listen.handle_utterance(_LOUD, _HYBRID_CFG) is None
     assert calls == []  # no wake word + not focused -> ignored
 
 
-def test_wake_delivers_when_browser_focused(tmp_path, monkeypatch):
-    _prep_utterance(monkeypatch, tmp_path, transcript="voxpane open the readme", window=_BROWSER)
+def test_wake_opens_session_when_browser_focused(tmp_path, monkeypatch):
+    _prep_utterance(monkeypatch, tmp_path, transcript="voxpane setu", window=_BROWSER)
     monkeypatch.setattr(listen, "_pause_media", lambda: None)
     calls = []
-    monkeypatch.setattr(listen, "_wake_deliver", lambda text, cfg: calls.append(text))
-    assert listen.handle_utterance(_LOUD, _HYBRID_CFG) == "open the readme"
-    assert calls == ["open the readme"]
+    monkeypatch.setattr(listen, "_wake_open_session", lambda req, cfg: calls.append(req))
+    listen.handle_utterance(_LOUD, _HYBRID_CFG)
+    assert calls == ["setu"]
 
 
 def test_captured_claude_precise_not_a_stray_terminal(tmp_path, monkeypatch):
@@ -391,7 +394,7 @@ def test_captured_claude_precise_not_a_stray_terminal(tmp_path, monkeypatch):
     )
     monkeypatch.setattr(listen, "_pause_media", lambda: None)
     calls = []
-    monkeypatch.setattr(listen, "_wake_deliver", lambda text, cfg: calls.append(text))
+    monkeypatch.setattr(listen, "_wake_open_session", lambda req, cfg: calls.append(req))
     # not the captured Claude terminal + no wake word -> ignored (won't type into htop)
     assert listen.handle_utterance(_LOUD, _HYBRID_CFG) is None
     assert calls == []

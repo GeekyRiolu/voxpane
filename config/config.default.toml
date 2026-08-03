@@ -78,6 +78,10 @@ wake_word = ""                  # e.g. "voxpane"
 wake_aliases = ["vox pane", "vox pain", "box pane", "fox pane", "voxpin", "vox pan"]
 pause_media_on_wake = true      # playerctl pause on wake
 wake_open_command = "claude --dangerously-skip-permissions --model opus"
+# The wake word opens a NEW terminal + Claude cd'd into the repo you name after it
+# ("<wake word> voxpane" -> <wake_base_dir>/voxpane, fuzzy-matched). Bare wake word
+# opens it in wake_base_dir itself.
+wake_base_dir = "~"             # e.g. "~/Work" if all your repos live under there
 terminal = ""                   # terminal to open a new session in ("" = autodetect)
 # Keep one listener running even with no Claude session open, so the wake word
 # works from a cold desktop. Run it as a service so it starts at login + restarts:
