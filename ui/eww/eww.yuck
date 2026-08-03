@@ -3,22 +3,23 @@
 ;; A little pixel critter that lives in the screen corner and reacts to voxpane:
 ;; sleeping when idle, ears-up when listening, mouth open when speaking, plus a
 ;; speech bubble with the transcript. It SLIDES UP when hands-free listening is
-;; turned on (SUPER ALT V) and slides back down when it's off. Per-field polls
-;; (plain strings) so it does NOT depend on eww parsing JSON. Swap the art in
+;; turned on (SUPER ALT V) and slides back down when it's off. Swap the art in
 ;; ~/.config/voxpane/pet/.
 
-(defpoll vstate  :interval "250ms" :initial "idle" "voxpane status --field state")
-(defpoll vsprite :interval "250ms" :initial ""     "voxpane status --field sprite")
-(defpoll vtext   :interval "350ms" :initial ""     "voxpane status --field detail")
-(defpoll vrun    :interval "300ms" :initial "0"    "voxpane status --field running")
+;; ONE streaming source instead of per-field polling: `voxpane status --watch` is a
+;; single process that prints the status JSON only when it changes, so the pet costs
+;; ~0 CPU (polling spawned a fresh Python ~14x/second — ~85% of a core).
+(deflisten vst
+  :initial '{"state":"idle","sprite":"","detail":"","running":"0"}'
+  "voxpane status --watch")
 
 (defwidget vox-pet []
-  ;; revealer: the pet slides up into the corner when the listener is on (vrun=1)
-  ;; and slides back down out of view when it's off.
-  (revealer :transition "slideup" :duration "350ms" :reveal {vrun == "1"}
-    (box :class "vox-pet vox-${vstate}" :orientation "v" :space-evenly false :spacing 2 :halign "center"
-      (label :class "vox-say" :text vtext :limit-width 26 :wrap true :visible {vtext != ""})
-      (image :class "vox-sprite" :path vsprite :image-width 88 :image-height 78))))
+  ;; revealer: the pet slides up into the corner when the listener is on and slides
+  ;; back down out of view when it's off.
+  (revealer :transition "slideup" :duration "350ms" :reveal {vst.running == "1"}
+    (box :class "vox-pet vox-${vst.state}" :orientation "v" :space-evenly false :spacing 2 :halign "center"
+      (label :class "vox-say" :text {vst.detail} :limit-width 26 :wrap true :visible {vst.detail != ""})
+      (image :class "vox-sprite" :path {vst.sprite} :image-width 88 :image-height 78))))
 
 (defwindow voxpane
   :monitor 0

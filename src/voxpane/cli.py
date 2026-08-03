@@ -62,6 +62,10 @@ def build_parser() -> argparse.ArgumentParser:
         "--field", choices=["state", "detail", "class", "text", "sprite", "tooltip", "running"],
         help="print just one field as plain text (for the eww overlay)",
     )
+    status.add_argument(
+        "--watch", action="store_true",
+        help="stream status JSON on every change (one process, for eww deflisten)",
+    )
     ovl = sub.add_parser("overlay", help="show the Siri-style on-screen overlay (eww)")
     ovl.add_argument("action", nargs="?", choices=["start", "stop"], default="start")
     chime = sub.add_parser("chime", help="alert on the Dot (Notification hook)")
@@ -484,7 +488,7 @@ def _cmd_vocab(args) -> int:
     return 0
 
 
-def _cmd_status(args) -> int:
+def _status_fields() -> dict[str, str]:
     from . import listen, overlay, recorder
 
     current = overlay.read_state()
@@ -495,7 +499,7 @@ def _cmd_status(args) -> int:
         elif paths.speaking_marker().exists():
             state = "speaking"
     icon, label = overlay.STATES.get(state, ("", "idle"))
-    fields = {
+    return {
         "text": icon,
         "class": state,
         "state": state,
@@ -505,6 +509,26 @@ def _cmd_status(args) -> int:
         # "1" while the hands-free listener is alive — the pet reveals/hides on it.
         "running": "1" if listen.is_listening() else "0",
     }
+
+
+def _cmd_status(args) -> int:
+    # --watch: ONE long-running process that streams the status JSON only when it
+    # changes, for eww's `deflisten`. This replaces per-field polling, which spawned
+    # Python ~14x/second (~85% of a CPU core) just to keep the pet updated.
+    if getattr(args, "watch", False):
+        import time
+
+        last = None
+        try:
+            while True:
+                line = json.dumps(_status_fields())
+                if line != last:
+                    print(line, flush=True)
+                    last = line
+                time.sleep(0.25)
+        except (KeyboardInterrupt, BrokenPipeError):
+            return 0
+    fields = _status_fields()
     if getattr(args, "field", None):
         print(fields.get(args.field, ""))
     else:
