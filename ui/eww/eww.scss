@@ -1,5 +1,8 @@
-/* voxpane pixel-pet overlay. The pet sprite is transparent; only the speech
-   bubble has a background. Tweak to taste. */
+/* voxpane pixel-pet overlay. Reset the GTK theme so nothing paints a box behind
+   the transparent pet — only the speech bubble has a background. Tweak to taste. */
+
+* { background-color: transparent; }
+window { background-color: transparent; }
 
 .vox-pet {
   background-color: transparent;
@@ -7,6 +10,7 @@
 
 .vox-sprite {
   /* the pixel sprite; sized in eww.yuck via image-width/height */
+  background-color: transparent;
 }
 
 .vox-say {
