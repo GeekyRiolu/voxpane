@@ -246,14 +246,15 @@ def test_capture_window_remembers_terminal(tmp_path, monkeypatch):
 
 
 def test_resolve_folder_matches_repo_by_voice(tmp_path):
-    for name in ("voxpane", "SETU_v2", "agent_bot"):
+    # generic example repo names — swap in your own under wake_base_dir (~/Work etc.)
+    for name in ("voxpane", "web-app-v2", "api-server"):
         (tmp_path / name).mkdir()
     base = str(tmp_path)
-    assert listen._resolve_folder("voxpane", base) == str(tmp_path / "voxpane")   # exact
-    assert listen._resolve_folder("setu", base) == str(tmp_path / "SETU_v2")       # substring
+    assert listen._resolve_folder("voxpane", base) == str(tmp_path / "voxpane")     # exact
+    assert listen._resolve_folder("web", base) == str(tmp_path / "web-app-v2")       # substring
     assert listen._resolve_folder("open the voxpane repo", base) == str(tmp_path / "voxpane")
-    assert listen._resolve_folder("", base) == base                               # bare -> base
-    assert listen._resolve_folder("nothing like this", base) == base              # no match -> base
+    assert listen._resolve_folder("", base) == base                # bare -> base
+    assert listen._resolve_folder("nothing like this", base) == base  # no match -> base
 
 
 def test_stop_removes_its_own_pidfile(tmp_path, monkeypatch):
@@ -391,12 +392,12 @@ def test_unaddressed_speech_ignored_when_browser_focused(tmp_path, monkeypatch):
 
 
 def test_wake_opens_session_when_browser_focused(tmp_path, monkeypatch):
-    _prep_utterance(monkeypatch, tmp_path, transcript="voxpane setu", window=_BROWSER)
+    _prep_utterance(monkeypatch, tmp_path, transcript="voxpane backend", window=_BROWSER)
     monkeypatch.setattr(listen, "_pause_media", lambda: None)
     calls = []
     monkeypatch.setattr(listen, "_wake_open_session", lambda req, cfg: calls.append(req))
     listen.handle_utterance(_LOUD, _HYBRID_CFG)
-    assert calls == ["setu"]
+    assert calls == ["backend"]
 
 
 def test_dictates_into_any_focused_terminal(tmp_path, monkeypatch):
