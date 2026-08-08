@@ -120,7 +120,7 @@ def toggle_running() -> bool:
     nothing is transcribed, so it costs zero CPU. Turning it on captures the
     terminal it was toggled from (if any) so dictation targets it precisely.
     """
-    if is_listening():
+    if is_listening() or _all_listener_pids():  # running (tracked) or an orphan alive
         stop()
         return False
     window = _active_window()
@@ -281,13 +281,30 @@ def release(session_id: str) -> None:
         stop()
 
 
+def _all_listener_pids() -> list[int]:
+    """Pids of every live `voxpane listen --run` process — catches orphans the pid
+    file has lost track of (after a crash/race), so a stray listener can't survive a
+    stop or make the toggle misfire."""
+    if not shutil.which("pgrep"):
+        pid = _read_pid(paths.listener_pid_file())
+        return [pid] if pid and _alive(pid) else []
+    out = subprocess.run(
+        ["pgrep", "-f", "voxpane listen --run"], capture_output=True, text=True
+    )
+    return [int(p) for p in out.stdout.split() if p.isdigit() and int(p) != os.getpid()]
+
+
 def stop() -> None:
     pid = _read_pid(paths.listener_pid_file())
-    if pid and _alive(pid):
-        try:
-            os.kill(pid, signal.SIGTERM)
-        except ProcessLookupError:
-            pass
+    targets = set(_all_listener_pids())  # the tracked listener PLUS any orphans
+    if pid:
+        targets.add(pid)
+    for target in targets:
+        if _alive(target):
+            try:
+                os.kill(target, signal.SIGTERM)
+            except ProcessLookupError:
+                pass
     # Only remove the pid file if it still names the listener we signalled — a
     # freshly-spawned listener may have already claimed it (rapid restart), and
     # clobbering its pid file would make it invisible to is_listening().

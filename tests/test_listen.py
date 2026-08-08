@@ -262,6 +262,7 @@ def test_stop_removes_its_own_pidfile(tmp_path, monkeypatch):
     pidfile = paths.listener_pid_file()
     pidfile.write_text("111")
     monkeypatch.setattr(listen, "_alive", lambda pid: False)  # already gone
+    monkeypatch.setattr(listen, "_all_listener_pids", list)    # no strays
     listen.stop()
     assert not pidfile.exists()
 
@@ -272,11 +273,24 @@ def test_stop_keeps_pidfile_reclaimed_by_a_new_listener(tmp_path, monkeypatch):
     pidfile = paths.listener_pid_file()
     pidfile.write_text("111")
     monkeypatch.setattr(listen, "_alive", lambda pid: False)
+    monkeypatch.setattr(listen, "_all_listener_pids", list)  # no strays
     # stop() targets 111, but a fresh listener reclaims the file before the guard.
     reads = iter([111, 222])
     monkeypatch.setattr(listen, "_read_pid", lambda p: next(reads))
     listen.stop()
     assert pidfile.exists()  # 222 != 111 -> must not remove the new listener's pid file
+
+
+def test_stop_sweeps_orphan_listeners(tmp_path, monkeypatch):
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
+    paths.ensure(paths.runtime_dir())
+    paths.listener_pid_file().write_text("111")            # tracked listener
+    monkeypatch.setattr(listen, "_all_listener_pids", lambda: [999])  # an orphan too
+    monkeypatch.setattr(listen, "_alive", lambda pid: True)
+    killed = []
+    monkeypatch.setattr(listen.os, "kill", lambda pid, sig: killed.append(pid))
+    listen.stop()
+    assert set(killed) == {111, 999}  # both the tracked one AND the orphan get killed
 
 
 # --- always_on: session end must not stop a standalone listener ---
@@ -454,6 +468,7 @@ def test_toggle_running_round_trip(tmp_path, monkeypatch):
     monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
     state = {"on": False}
     monkeypatch.setattr(listen, "is_listening", lambda: state["on"])
+    monkeypatch.setattr(listen, "_all_listener_pids", list)  # no orphan strays
     monkeypatch.setattr(listen, "_spawn_listener", lambda: state.__setitem__("on", True))
     monkeypatch.setattr(listen, "stop", lambda: state.__setitem__("on", False))
     monkeypatch.setattr(listen, "_active_window", lambda: None)  # nothing to capture
