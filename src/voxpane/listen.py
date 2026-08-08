@@ -231,12 +231,12 @@ def focus_ok(cfg: dict[str, Any]) -> bool:
 
 
 def _dictation_target_focused(cfg: dict[str, Any]) -> bool:
-    """True if the focused window is where free dictation should go.
+    """True if free dictation should go to the focused window: any terminal (Claude
+    Code runs in one), or a ``focus_match`` class/title regex if configured.
 
-    A captured Claude terminal when we have one (precise — never a stray terminal),
-    else any terminal when no session is registered (always-on mode). ``focus_match``
-    overrides both. This is what splits free dictation (focused on Claude) from
-    wake-word-gated delivery (focused on a browser / nothing).
+    Kept simple on purpose — matching against a *captured* window address was fragile
+    (a stale capture silently swallowed your words). This splits free dictation
+    (focused on a terminal) from wake-word delivery (focused on a browser / nothing).
     """
     active = _active_window()
     if active is None:
@@ -246,9 +246,6 @@ def _dictation_target_focused(cfg: dict[str, Any]) -> bool:
         pattern = re.compile(match, re.IGNORECASE)
         cls, title = active.get("class", ""), active.get("title", "")
         return bool(pattern.search(cls) or pattern.search(title))
-    captured = {w.get("address") for w in _load_windows().values() if w.get("address")}
-    if captured:
-        return active.get("address") in captured
     return _is_terminal_window(active)
 
 

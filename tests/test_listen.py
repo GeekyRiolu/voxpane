@@ -399,19 +399,19 @@ def test_wake_opens_session_when_browser_focused(tmp_path, monkeypatch):
     assert calls == ["setu"]
 
 
-def test_captured_claude_precise_not_a_stray_terminal(tmp_path, monkeypatch):
-    # A different terminal is focused; the real Claude window is captured elsewhere.
+def test_dictates_into_any_focused_terminal(tmp_path, monkeypatch):
+    # No fragile captured-window matching: focused on ANY terminal -> dictate, even
+    # if a different window was captured. (Robustness over precision.)
     _prep_utterance(
-        monkeypatch, tmp_path, transcript="hello",
+        monkeypatch, tmp_path, transcript="run the tests",
         window={"class": "Alacritty", "title": "htop", "address": "0xOTHER"},
         captured={"s": {"address": "0xCLAUDE"}},
     )
-    monkeypatch.setattr(listen, "_pause_media", lambda: None)
-    calls = []
-    monkeypatch.setattr(listen, "_wake_open_session", lambda req, cfg: calls.append(req))
-    # not the captured Claude terminal + no wake word -> ignored (won't type into htop)
-    assert listen.handle_utterance(_LOUD, _HYBRID_CFG) is None
-    assert calls == []
+    got = {}
+    monkeypatch.setattr("voxpane.deliver.deliver",
+                        lambda text, cfg, submit=True: got.update(text=text))
+    assert listen.handle_utterance(_LOUD, _HYBRID_CFG) == "run the tests"
+    assert got["text"] == "run the tests"
 
 
 # --- Whisper hallucination filter ---
