@@ -227,6 +227,11 @@ def _cmd_install_bindings() -> int:
         print("Add these two shortcuts in your system keyboard settings:")
         for line in result.instructions:
             print(f"  • {line}")
+        from . import osutil
+        if osutil.IS_WINDOWS:
+            print("  On Windows, AutoHotkey is the easiest route — e.g. in a .ahk script:")
+            print("    #!v::Run, voxpane toggle    ; Win+Alt+V  -> voxpane listen --toggle")
+            print("    #!s::Run, voxpane hush       ; Win+Alt+S")
         return 0
 
     if result.status == "already":
@@ -269,7 +274,39 @@ def _ensure_always_on() -> tuple[Path, bool]:
     return path, True
 
 
+def _install_listener_windows() -> int:
+    import shutil
+    import subprocess
+
+    if not shutil.which("schtasks"):
+        print("schtasks not found — cannot register the listener service", file=sys.stderr)
+        return 1
+    exe = shutil.which("voxpane") or "voxpane"
+    task = "voxpane-listen"
+    try:
+        subprocess.run(
+            ["schtasks", "/Create", "/TN", task, "/TR", f'"{exe}" listen --run',
+             "/SC", "ONLOGON", "/RL", "LIMITED", "/F"],
+            check=True, capture_output=True, text=True,
+        )
+    except (OSError, subprocess.CalledProcessError) as exc:
+        print(f"  ! could not register the scheduled task: {exc}", file=sys.stderr)
+        return 1
+    print(f"✓ registered scheduled task '{task}' (runs `voxpane listen --run` at logon)")
+    cfg_path, changed = _ensure_always_on()
+    print(f"✓ set always_on = true in {cfg_path}" if changed
+          else f"✓ always_on already enabled ({cfg_path})")
+    subprocess.run(["schtasks", "/Run", "/TN", task], capture_output=True)
+    print('  set wake_word in config.toml, then say "voxpane ..." from anywhere')
+    print(f"  remove later with:  schtasks /Delete /TN {task} /F")
+    return 0
+
+
 def _cmd_install_listener() -> int:
+    from . import osutil
+    if osutil.IS_WINDOWS:
+        return _install_listener_windows()
+
     import shutil
     import subprocess
 

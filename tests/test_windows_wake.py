@@ -6,7 +6,9 @@ built per terminal (wt / cmd / pwsh). Exercised on Linux by forcing osutil.IS_WI
 
 from __future__ import annotations
 
-from voxpane import listen
+from types import SimpleNamespace
+
+from voxpane import cli, listen, osutil
 
 
 def test_detect_terminal_windows_prefers_wt(monkeypatch):
@@ -47,3 +49,21 @@ def test_wake_argv_posix_uses_sh_lc(monkeypatch):
     argv = listen._wake_argv(["alacritty", "-e"], "/home/x/repo", "claude")
     assert argv[:4] == ["alacritty", "-e", "sh", "-lc"]
     assert "cd" in argv[-1] and "claude" in argv[-1]
+
+
+def test_install_listener_windows_registers_scheduled_task(monkeypatch, tmp_path):
+    import shutil
+    import subprocess
+
+    monkeypatch.setattr(osutil, "IS_WINDOWS", True)
+    monkeypatch.setenv("APPDATA", str(tmp_path))
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    monkeypatch.setattr(shutil, "which", lambda n: f"C:/{n}.exe")
+    calls = []
+    monkeypatch.setattr(subprocess, "run",
+                        lambda argv, **k: calls.append(argv) or SimpleNamespace(
+                            returncode=0, stdout="", stderr=""))
+
+    assert cli._install_listener_windows() == 0
+    assert any(c[:2] == ["schtasks", "/Create"] for c in calls)
+    assert any(c[:2] == ["schtasks", "/Run"] for c in calls)

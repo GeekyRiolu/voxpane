@@ -54,3 +54,20 @@ def test_preserves_existing_hooks_and_keys(tmp_path):
     assert "mine.sh" in commands  # existing hook untouched
     assert any("voxpane-stop.sh" in c for c in commands)  # ours added
     assert data["model"] == "opus"  # unrelated keys intact
+
+
+def test_install_hooks_windows_uses_ps1_and_powershell(tmp_path, monkeypatch):
+    monkeypatch.setattr(hooks.osutil, "IS_WINDOWS", True)
+    settings = tmp_path / "settings.json"
+    dest = tmp_path / "hooks"
+
+    result = hooks.install_hooks(settings=settings, hooks_dest=dest)
+
+    assert set(result["added"]) == {
+        "PostToolUse", "Stop", "Notification", "SessionStart", "SessionEnd"
+    }
+    assert (dest / "voxpane-stop.ps1").exists()
+    assert not (dest / "voxpane-stop.sh").exists()  # only the .ps1 variant on Windows
+    data = json.loads(settings.read_text())
+    cmds = [h["command"] for g in data["hooks"]["Stop"] for h in g["hooks"]]
+    assert any("powershell" in c and "voxpane-stop.ps1" in c and "Bypass" in c for c in cmds)
