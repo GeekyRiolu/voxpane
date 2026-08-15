@@ -48,7 +48,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     sub.add_parser("install-hooks", help="install Claude Code hooks (ledger + speak)")
-    sub.add_parser("install-bindings", help="install the Hyprland keybind (SUPER ALT V)")
+    sub.add_parser("install-bindings",
+                   help="install the SUPER ALT V keybind (Hyprland/Sway; prints steps elsewhere)")
     sub.add_parser(
         "install-listener",
         help="enable the always-on listener service (wake word works with no session)",
@@ -221,6 +222,13 @@ def _cmd_install_bindings() -> int:
         print(f"voxpane install-bindings: {exc}", file=sys.stderr)
         return 1
 
+    if result.kind == "manual":
+        print("voxpane: this desktop has no keybind API voxpane can write to.")
+        print("Add these two shortcuts in your system keyboard settings:")
+        for line in result.instructions:
+            print(f"  • {line}")
+        return 0
+
     if result.status == "already":
         print(f"✓ voxpane binds already present in {result.path}")
         return 0
@@ -228,8 +236,12 @@ def _cmd_install_bindings() -> int:
     if result.backup:
         print(f"  backed up to {result.backup}")
     if result.status == "created" and not result.sourced:
-        print(f"  ! {result.path.name} is new — add to hyprland.conf: source = {result.path}")
-    print("  reload Hyprland: hyprctl reload")
+        if result.kind == "sway":
+            print(f"  ! {result.path.name} is new — make sure your sway config has: "
+                  f"include {result.path.parent}/*")
+        else:
+            print(f"  ! {result.path.name} is new — add to hyprland.conf: source = {result.path}")
+    print(f"  reload: {'swaymsg reload' if result.kind == 'sway' else 'hyprctl reload'}")
     return 0
 
 
@@ -587,6 +599,15 @@ def _cmd_overlay(args) -> int:
         subprocess.run([*eww, "kill"], capture_output=True)
         print("voxpane overlay: closed")
         return 0
+    from . import config, desktop
+    if not desktop.overlay_supported(config.load()):
+        print(
+            "voxpane overlay: the pixel pet needs a wlroots compositor (Hyprland or "
+            "Sway) for its layer-shell window — your desktop can't show it. Everything "
+            "else (voice, dictation, spoken summaries) works regardless.",
+            file=sys.stderr,
+        )
+        return 1
     # Single instance: kill any pet already up (eww daemons can stack) before
     # starting a fresh one — so only ever one remains open.
     subprocess.run([*eww, "kill"], capture_output=True)
@@ -641,6 +662,9 @@ def _ensure_overlay_running() -> None:
     import shutil
     import subprocess
 
+    from . import config, desktop
+    if not desktop.overlay_supported(config.load()):
+        return  # no wlroots layer-shell here — nothing to restore
     if not shutil.which("eww") or not shutil.which("pgrep"):
         return
     if subprocess.run(["pgrep", "-x", "eww"], capture_output=True).returncode == 0:
