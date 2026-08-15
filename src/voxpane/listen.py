@@ -164,6 +164,7 @@ _TERMINAL_CLASSES = (
     "alacritty", "kitty", "foot", "ghostty", "wezterm", "xterm",
     "konsole", "terminal", "termite", "urxvt", "rxvt", "tilix",
     "org.wezfurlong", "com.mitchellh.ghostty", "kgx",
+    "iterm",  # macOS: active_window reports the app name (Terminal / iTerm2 / …)
 )
 
 

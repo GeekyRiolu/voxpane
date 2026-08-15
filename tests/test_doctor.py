@@ -137,8 +137,47 @@ def test_windows_install_hint_uses_winget(monkeypatch):
 
 def test_windows_run_checks_skips_linux_only(monkeypatch, tmp_path):
     monkeypatch.setattr(doctor.osutil, "IS_WINDOWS", True)
+    monkeypatch.setattr(doctor.osutil, "IS_LINUX", False)
     monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))  # isolate runtime-dir writes
     names = {c.name for c in doctor.run_checks(_win(_cfg()))}
     assert "desktop" in names and "audio capture" in names
     for linux_only in ("notify-send", "jq", "playerctl", "audio source", "alexa", "bluez sink"):
+        assert linux_only not in names
+
+
+# ------------------------------------------------------- macos
+
+def _mac(cfg):
+    cfg["desktop"]["backend"] = "macos"
+    return cfg
+
+
+def test_macos_backend_check_reports_no_pet(monkeypatch):
+    monkeypatch.setattr(doctor.osutil, "IS_WINDOWS", False)
+    monkeypatch.setattr(doctor.osutil, "IS_MACOS", True)
+    monkeypatch.setattr(doctor.osutil, "IS_LINUX", False)
+    desk = next(c for c in doctor.run_checks(_mac(_cfg())) if c.name == "desktop")
+    assert "macos" in desk.detail and "experimental" in desk.detail
+
+
+def test_macos_desktop_binaries_are_osascript_and_pbcopy():
+    names = {n for n, _h, _s in doctor._desktop_binaries(_mac(_cfg()), "macos")}
+    assert names == {"osascript", "pbcopy"}
+
+
+def test_macos_install_hint_uses_brew(monkeypatch):
+    monkeypatch.setattr(doctor.osutil, "IS_WINDOWS", False)
+    monkeypatch.setattr(doctor.osutil, "IS_MACOS", True)
+    monkeypatch.setattr(doctor.shutil, "which",
+                        lambda n: "/opt/homebrew/bin/brew" if n == "brew" else None)
+    assert doctor._install_hint("jq") == "brew install jq"
+
+
+def test_macos_run_checks_keeps_jq_skips_desktop_linux_only(monkeypatch):
+    monkeypatch.setattr(doctor.osutil, "IS_WINDOWS", False)
+    monkeypatch.setattr(doctor.osutil, "IS_MACOS", True)
+    monkeypatch.setattr(doctor.osutil, "IS_LINUX", False)
+    names = {c.name for c in doctor.run_checks(_mac(_cfg()))}
+    assert "desktop" in names and "jq" in names  # .sh hooks need jq on macOS
+    for linux_only in ("notify-send", "playerctl", "audio source", "alexa", "bluez sink"):
         assert linux_only not in names

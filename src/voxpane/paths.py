@@ -35,21 +35,31 @@ def _win_local() -> Path:
     return _env_path("LOCALAPPDATA") or Path.home() / "AppData" / "Local"
 
 
+def _mac_support() -> Path:
+    return Path.home() / "Library" / "Application Support"
+
+
 def config_dir() -> Path:
     if osutil.IS_WINDOWS:
         return (_env_path("APPDATA") or Path.home() / "AppData" / "Roaming") / APP
+    if osutil.IS_MACOS:
+        return _xdg("XDG_CONFIG_HOME", _mac_support()) / APP
     return _xdg("XDG_CONFIG_HOME", Path.home() / ".config") / APP
 
 
 def state_dir() -> Path:
     if osutil.IS_WINDOWS:
         return _win_local() / APP / "state"
+    if osutil.IS_MACOS:
+        return _xdg("XDG_STATE_HOME", _mac_support()) / APP / "state"
     return _xdg("XDG_STATE_HOME", Path.home() / ".local" / "state") / APP
 
 
 def data_dir() -> Path:
     if osutil.IS_WINDOWS:
         return _win_local() / APP
+    if osutil.IS_MACOS:
+        return _xdg("XDG_DATA_HOME", _mac_support()) / APP
     return _xdg("XDG_DATA_HOME", Path.home() / ".local" / "share") / APP
 
 

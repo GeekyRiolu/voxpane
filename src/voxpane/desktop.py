@@ -10,8 +10,9 @@ Backends: ``hyprland`` + ``sway`` (wlroots/Wayland) and ``x11`` are fully wired;
 ``wayland`` (generic — GNOME/KDE) is best-effort — there is no reliable focused-window
 CLI there, so the focus gate simply relaxes and typing needs ``ydotool``. ``windows``
 (native Win32, Phase 2) reads focus via ctypes and pastes/copies via PowerShell.
-Detection is by environment (``sys.platform`` first, then the session); ``[desktop]
-backend`` in config overrides it (``auto`` = detect).
+``macos`` (Phase 3) reads focus and pastes via AppleScript (``osascript``) and copies via
+``pbcopy``. Detection is by environment (``sys.platform`` first, then the session);
+``[desktop] backend`` in config overrides it (``auto`` = detect).
 
 Only the Hyprland path is exercised on the author's machine; the others are written to
 spec + unit-tested and are considered EXPERIMENTAL until validated on those sessions.
@@ -32,7 +33,8 @@ SWAY = "sway"
 WAYLAND = "wayland"  # generic Wayland (GNOME/KDE) — degraded (no focus CLI)
 X11 = "x11"
 WINDOWS = "windows"  # native Win32 (Phase 2) — ctypes focus, PowerShell paste/clipboard
-_KNOWN = (HYPRLAND, SWAY, WAYLAND, X11, WINDOWS)
+MACOS = "macos"      # native macOS (Phase 3) — AppleScript focus/paste, pbcopy clipboard
+_KNOWN = (HYPRLAND, SWAY, WAYLAND, X11, WINDOWS, MACOS)
 
 
 def _run(cmd: list[str], timeout: float = 2.0) -> str | None:
@@ -53,6 +55,8 @@ def detect_backend() -> str:
     sockets; fall back to generic Wayland, then X11, then whatever tool exists."""
     if osutil.IS_WINDOWS:
         return WINDOWS
+    if osutil.IS_MACOS:
+        return MACOS
     if os.environ.get("HYPRLAND_INSTANCE_SIGNATURE"):
         return HYPRLAND
     if os.environ.get("SWAYSOCK"):
@@ -172,12 +176,40 @@ def _windows_active() -> dict[str, str] | None:
     return {"class": exe, "title": title, "id": str(int(hwnd))}
 
 
+_MACOS_ACTIVE_SCRIPT = (
+    'tell application "System Events"\n'
+    ' set p to first application process whose frontmost is true\n'
+    ' set appName to name of p\n'
+    ' try\n'
+    '  set winTitle to name of front window of p\n'
+    ' on error\n'
+    '  set winTitle to ""\n'
+    ' end try\n'
+    'end tell\n'
+    'return appName & "\\n" & winTitle'
+)
+
+
+def _macos_active() -> dict[str, str] | None:
+    """Focused window on macOS via AppleScript (needs Accessibility permission): the
+    frontmost app name (as ``class``) + its front window title. No stable window id, so
+    ``id`` is the app name too."""
+    out = _run(["osascript", "-e", _MACOS_ACTIVE_SCRIPT])
+    if not out:
+        return None
+    app, _, title = out.partition("\n")
+    app = app.strip()
+    if not app:
+        return None
+    return {"class": app, "title": title.strip(), "id": app}
+
+
 def active_window(cfg: dict[str, Any] | None = None) -> dict[str, str] | None:
     """The focused window as ``{class, title, id}``, or None if undeterminable — which
     the focus gate treats as 'don't block'. Generic Wayland (GNOME/KDE) has no reliable
     focused-window CLI, so it returns None (focus gate off; the wake word still works)."""
     match = {HYPRLAND: _hyprland_active, SWAY: _sway_active, X11: _x11_active,
-             WINDOWS: _windows_active}
+             WINDOWS: _windows_active, MACOS: _macos_active}
     fn = match.get(backend(cfg))
     return fn() if fn else None
 
@@ -214,12 +246,33 @@ def _windows_paste_and_submit(submit: bool) -> bool:
     return subprocess.run([pwsh, "-NoProfile", "-Command", cmd]).returncode == 0
 
 
+def _macos_paste_and_submit(submit: bool) -> bool:
+    """Paste (Cmd+V) into the focused window via AppleScript System Events, then Return
+    if ``submit`` (key code 36). Needs Accessibility permission. False if no osascript."""
+    if not shutil.which("osascript"):
+        return False
+    subprocess.run(
+        ["osascript", "-e",
+         'tell application "System Events" to keystroke "v" using command down'],
+        check=False,
+    )
+    if submit:
+        subprocess.run(
+            ["osascript", "-e", 'tell application "System Events" to key code 36'],
+            check=False,
+        )
+    return True
+
+
 def paste_and_submit(cfg: dict[str, Any] | None = None, *, submit: bool = False) -> bool:
     """Inject the Ctrl+Shift+V paste chord into the focused window, then Enter if
     ``submit``. Returns False if no typing tool is available (caller keeps the text on
     the clipboard as the fallback)."""
-    if backend(cfg) == WINDOWS:
+    be = backend(cfg)
+    if be == WINDOWS:
         return _windows_paste_and_submit(submit=submit)
+    if be == MACOS:
+        return _macos_paste_and_submit(submit=submit)
     tool = _type_tool(cfg)
     if tool == "wtype":
         subprocess.run(
@@ -281,8 +334,14 @@ def _win_clipboard_set(text: str) -> None:
 
 def clipboard_copy(text: str, cfg: dict[str, Any] | None = None) -> None:
     """Put ``text`` on the clipboard. Raises if no clipboard tool is installed."""
-    if backend(cfg) == WINDOWS:
+    be = backend(cfg)
+    if be == WINDOWS:
         _win_clipboard_set(text)
+        return
+    if be == MACOS:
+        if not shutil.which("pbcopy"):
+            raise RuntimeError("no clipboard tool — pbcopy missing (macOS)")
+        subprocess.run(["pbcopy"], input=text, text=True, check=True)
         return
     argv = _clip_argv(cfg)
     if argv is None:

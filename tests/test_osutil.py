@@ -58,6 +58,17 @@ def test_windows_dirs_use_appdata_and_localappdata(monkeypatch):
     assert paths.runtime_dir() == paths.Path(local) / "voxpane" / "runtime"
 
 
+def test_macos_dirs_use_library_application_support(monkeypatch):
+    monkeypatch.setattr(paths.osutil, "IS_WINDOWS", False)
+    monkeypatch.setattr(paths.osutil, "IS_MACOS", True)
+    for var in ("XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME"):
+        monkeypatch.delenv(var, raising=False)
+    support = paths.Path.home() / "Library" / "Application Support"
+    assert paths.config_dir() == support / "voxpane"
+    assert paths.data_dir() == support / "voxpane"
+    assert paths.state_dir() == support / "voxpane" / "state"
+
+
 def test_windows_runtime_dir_never_calls_getuid(monkeypatch):
     # os.getuid() doesn't exist on Windows; the Windows branch must never reach it.
     monkeypatch.setattr(paths.osutil, "IS_WINDOWS", True)

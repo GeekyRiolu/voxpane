@@ -217,3 +217,46 @@ def test_windows_paste_without_submit_omits_enter(monkeypatch):
 def test_windows_paste_returns_false_without_powershell(monkeypatch):
     monkeypatch.setattr(desktop, "_powershell", lambda: None)
     assert desktop.paste_and_submit(_WIN) is False
+
+
+# --------------------------------------------------------------- macos
+
+_MAC = {"desktop": {"backend": "macos"}}
+
+
+def test_detect_backend_macos(monkeypatch):
+    monkeypatch.setattr(desktop.osutil, "IS_WINDOWS", False)
+    monkeypatch.setattr(desktop.osutil, "IS_MACOS", True)
+    assert desktop.detect_backend() == desktop.MACOS
+
+
+def test_macos_is_a_valid_config_backend():
+    assert desktop.backend(_MAC) == desktop.MACOS
+
+
+def test_macos_active_parses_osascript(monkeypatch):
+    monkeypatch.setattr(desktop, "_run", lambda cmd, timeout=2.0: "Terminal\nclaude — vim\n")
+    assert desktop.active_window(_MAC) == {
+        "class": "Terminal", "title": "claude — vim", "id": "Terminal"}
+
+
+def test_macos_paste_uses_osascript_cmd_v_and_return(monkeypatch):
+    monkeypatch.setattr(desktop.shutil, "which", lambda n: "/usr/bin/osascript")
+    runs = []
+    monkeypatch.setattr(desktop.subprocess, "run", lambda cmd, **k: runs.append(cmd))
+    assert desktop.paste_and_submit(_MAC, submit=True) is True
+    assert any("command down" in c[-1] for c in runs)   # Cmd+V
+    assert any("key code 36" in c[-1] for c in runs)     # Return
+
+
+def test_macos_clipboard_uses_pbcopy(monkeypatch):
+    monkeypatch.setattr(desktop.shutil, "which", lambda n: "/usr/bin/pbcopy")
+    seen = {}
+    monkeypatch.setattr(desktop.subprocess, "run",
+                        lambda argv, **k: seen.update(argv=argv, input=k.get("input")))
+    desktop.clipboard_copy("hi", _MAC)
+    assert seen["argv"] == ["pbcopy"] and seen["input"] == "hi"
+
+
+def test_macos_overlay_unsupported():
+    assert desktop.overlay_supported(_MAC) is False

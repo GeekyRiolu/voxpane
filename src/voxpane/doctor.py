@@ -55,6 +55,8 @@ def _install_hint(tool: str) -> str:
             if shutil.which(mgr):
                 return f"{mgr} install {tool}"
         return f"install {tool}"
+    if osutil.IS_MACOS:
+        return f"brew install {tool}" if shutil.which("brew") else f"install {tool}"
     names = _PKG_NAMES.get(tool, {})
     mgr = _pkg_manager()
     if mgr:
@@ -90,22 +92,23 @@ def _backend_check(be: str) -> Check:
     if supported:
         bits.append("pet ✓")
     else:
-        bits.append("no pet (Linux/wlroots only)" if osutil.IS_WINDOWS
-                    else "no pet (needs Hyprland/Sway)")
+        native = osutil.IS_WINDOWS or osutil.IS_MACOS
+        bits.append("no pet (Linux/wlroots only)" if native else "no pet (needs Hyprland/Sway)")
     return Check("desktop", True, ", ".join(bits))
 
 
 def _audio_input_check() -> Check:
     """A mic-capture tool must exist: pw-record/parec (PipeWire/PulseAudio) on Linux,
-    or the sounddevice (WASAPI) Python module on Windows."""
-    if osutil.IS_WINDOWS:
+    or the sounddevice module (WASAPI on Windows, CoreAudio on macOS)."""
+    if osutil.IS_WINDOWS or osutil.IS_MACOS:
+        extra = "windows" if osutil.IS_WINDOWS else "macos"
         try:
             import sounddevice  # noqa: F401
         except Exception as exc:  # PortAudio or the module itself missing
             return Check("audio capture", False,
                          f"sounddevice unavailable ({type(exc).__name__})",
-                         "pip install voxpane[windows]")
-        return Check("audio capture", True, "sounddevice (WASAPI)")
+                         f"pip install voxpane[{extra}]")
+        return Check("audio capture", True, "sounddevice")
     for tool in ("pw-record", "parec"):
         path = shutil.which(tool)
         if path:
@@ -124,6 +127,12 @@ def _desktop_binaries(cfg: dict[str, Any], be: str) -> list[tuple[str, str, bool
         # which ships with Windows. Required only in focus mode (else clipboard fallback).
         typer_soft = cfg["delivery"]["mode"] != "focus"
         return [("powershell", "ships with Windows — used for paste + clipboard", typer_soft)]
+
+    if be == desktop.MACOS:
+        # Focus + paste use osascript (AppleScript); clipboard uses pbcopy — both built in.
+        typer_soft = cfg["delivery"]["mode"] != "focus"
+        return [("osascript", "built into macOS — focus + paste", typer_soft),
+                ("pbcopy", "built into macOS — clipboard", False)]
 
     focus = {desktop.HYPRLAND: "hyprctl", desktop.SWAY: "swaymsg", desktop.X11: "xdotool"}.get(be)
     typer = {desktop.HYPRLAND: "wtype", desktop.SWAY: "wtype",
@@ -275,22 +284,24 @@ def run_checks(cfg: dict[str, Any] | None = None) -> list[Check]:
     checks.append(_audio_input_check())
     for name, hint, soft in _desktop_binaries(cfg, be):
         checks.append(_bin(name, hint, soft=soft))
-    # notifications / hook glue / pet / media-pause are Linux-only (Windows defers these).
+    # The shell hooks (jq) run on Linux + macOS; Windows uses PowerShell hooks instead.
     if not osutil.IS_WINDOWS:
+        checks.append(_bin("jq", _install_hint("jq") + " — the Claude Code hook scripts need it"))
+    # notifications / pet / media-pause / Echo backends are Linux-desktop only.
+    if osutil.IS_LINUX:
         checks.append(_bin("notify-send", _install_hint("notify-send") + " — desktop notifications",
                            soft=True))
-        checks.append(_bin("jq", _install_hint("jq") + " — the Claude Code hook scripts need it"))
         if desktop.overlay_supported(cfg):
             checks.append(_bin("eww", "build eww (github.com/elkowars/eww) — the pixel pet",
                                soft=True))
         checks.append(_bin("playerctl", _install_hint("playerctl") + " — pauses media on wake",
                            soft=True))
     checks.append(_stt(cfg))
-    if not osutil.IS_WINDOWS:  # wpctl / Echo backends are Linux-only
+    if osutil.IS_LINUX:  # wpctl / Echo backends are Linux-only
         checks.append(_default_source())
     checks.append(_runtime_dir_writable())
     checks.append(_tmux_target(cfg))
-    if not osutil.IS_WINDOWS:
+    if osutil.IS_LINUX:
         checks.append(_alexa_check(cfg))
         checks.append(_bluez_check(cfg))
     return checks
