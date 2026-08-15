@@ -230,46 +230,65 @@ voxpane install-hooks        # wire spoken summaries into Claude Code
 
 ---
 
-## Windows (experimental — MVP dictation)
+## Windows (experimental)
 
-**Status:** push-to-talk **dictation** works — mic → Whisper → the transcript on your
-clipboard (or pasted into the focused terminal). Spoken output, the wake word, and the
-always-on service are **Linux-only for now** (they're the next Windows release). Neither
-the author nor CI runs Windows, so this is unvalidated — please
+**Status:** the **full loop** works on native Windows — push-to-talk **dictation**,
+**spoken summaries** (Piper → your speakers + a toast), the **wake word**, an always-on
+**listener** (Scheduled Task), and Claude Code **hooks** (PowerShell). Native Win32:
+WASAPI mic via `sounddevice`, focus via Win32, paste/clipboard via PowerShell. The only
+Windows-only gap vs. Linux is the on-screen pet (wlroots-only). **Neither the author nor
+CI runs Windows**, so all of this is unvalidated — please
 [open an issue](https://github.com/GeekyRiolu/voxpane/issues) with what works or breaks.
 
 1. **Python 3.11+** — from [python.org](https://www.python.org/downloads/) or
    `winget install Python.Python.3.12`. Tick "Add python.exe to PATH".
 
-2. **Install voxpane** with the Windows audio extra (pulls in `sounddevice`/WASAPI):
+2. **Install voxpane** — the `windows` extra pulls in `sounddevice` (WASAPI); add
+   `daemon` for the resident model and `listen` for the wake word:
    ```powershell
-   pip install "voxpane[windows]"
-   # or from a clone:  pip install ".[windows]"
+   pip install "voxpane[windows,daemon,listen]"
+   # or from a clone:  pip install ".[windows,daemon,listen]"
    ```
 
 3. **whisper.cpp** — download a Windows `whisper-cli.exe` from the
    [whisper.cpp releases](https://github.com/ggml-org/whisper.cpp/releases) (or build it)
    and put it on `PATH`. Grab a model, e.g. `ggml-large-v3-turbo-q5_0.bin`.
 
-4. **Config** — create `%APPDATA%\voxpane\config.toml` (voxpane also runs on built-in
-   defaults, but the default model path is Linux-only, so set at least the model):
+4. **Config** — create `%APPDATA%\voxpane\config.toml`. voxpane runs on built-in
+   defaults, but the default model path is Linux-only, so set at least the model (and
+   `mode = "focus"` to paste rather than just copy):
    ```toml
    [whisper]
    binary = "whisper-cli"                     # or the full path to whisper-cli.exe
    model  = "C:/Users/you/models/ggml-large-v3-turbo-q5_0.bin"
 
    [delivery]
-   mode = "focus"      # paste into the focused window; use "clipboard" to just copy
+   mode = "focus"      # paste into the focused window; "clipboard" just copies
+
+   [speak.bluetooth]
+   piper_model = "C:/Users/you/piper/en_US-lessac-medium.onnx"   # for spoken summaries
    ```
 
 5. **Check** — `voxpane doctor` should report backend `windows`, `audio capture:
    sounddevice`, and `powershell`. Fix anything red.
 
-6. **Dictate** — `voxpane start`, speak, `voxpane stop`. In `clipboard` mode the
-   transcript lands on the clipboard (paste with Ctrl+V); in `focus` mode it pastes into
-   the focused terminal. Bind a key to **`voxpane toggle`** for one-press start/stop —
-   e.g. an AutoHotkey line `^!v::Run, voxpane toggle` (Windows has no built-in global
-   keybind API, so `voxpane install-bindings` just prints the shortcut to add yourself).
+6. **Dictate** — `voxpane start`, speak, `voxpane stop` (or bind a key to
+   **`voxpane toggle`**). In `focus` mode the transcript pastes into the focused
+   terminal; `clipboard` mode just copies (Ctrl+V to paste).
 
-Focus is read via Win32; paste and clipboard go through PowerShell (which ships with
-Windows). There is no eww pet on Windows — voxpane runs headless.
+7. **Spoken summaries** — get [Piper for Windows](https://github.com/rhasspy/piper/releases)
+   (`piper.exe` on `PATH`) + a voice `.onnx`, set `speak.bluetooth.piper_model`, then
+   `voxpane install-hooks`. Summaries play to your default output (point that at any
+   speaker) with a toast fallback.
+
+8. **Wake word / always-on** — `voxpane install-listener` registers a `voxpane-listen`
+   scheduled task (runs at logon); set `wake_word` in the config and say "voxpane …" to
+   open a new Windows Terminal with Claude. Start the resident model with `voxpane daemon`
+   (a scheduled task, or run it once) for low latency.
+
+9. **Keybinds** — Windows has no global-keybind API voxpane can write to, so
+   `voxpane install-bindings` prints an [AutoHotkey](https://www.autohotkey.com/) snippet
+   to add yourself (e.g. `#!v::Run, voxpane toggle`).
+
+The resident STT daemon uses loopback TCP on Windows (CPython has no AF_UNIX). There is
+no on-screen pet on Windows — voxpane runs headless.
