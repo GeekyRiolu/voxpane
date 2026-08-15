@@ -10,10 +10,12 @@ panes finishing at once do not talk over each other.
 from __future__ import annotations
 
 import contextlib
-import fcntl
 from typing import Any
 
-from .. import paths
+from .. import osutil, paths
+
+if not osutil.IS_WINDOWS:
+    import fcntl  # POSIX-only; Windows uses a best-effort no-op lock (below)
 from .alexa import AlexaSpeaker
 from .base import Speaker, SpeakerError
 from .bluetooth import BluetoothSpeaker
@@ -38,7 +40,13 @@ def get_backend(name: str, cfg: dict[str, Any]) -> Speaker:
 
 @contextlib.contextmanager
 def _speak_lock():
-    """Serialise utterances across concurrent sessions (best-effort file lock)."""
+    """Serialise utterances across concurrent sessions (best-effort file lock).
+
+    On Windows there is no ``fcntl``; the lock degrades to a no-op for now (a
+    portable ``msvcrt`` lock lands with the Windows spoken-output work)."""
+    if osutil.IS_WINDOWS:
+        yield
+        return
     lock_path = paths.speak_lock_file()
     paths.ensure(lock_path.parent)
     handle = open(lock_path, "w")  # noqa: SIM115 - held for the context's duration

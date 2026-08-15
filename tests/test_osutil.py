@@ -1,0 +1,78 @@
+"""Tests for osutil (OS detection) and the OS-aware path resolution in paths.py.
+
+The Windows branches are exercised on Linux by forcing ``osutil.IS_WINDOWS`` and
+mocking the environment — so CI proves the Windows wiring without a Windows box.
+"""
+
+from __future__ import annotations
+
+import sys
+
+from voxpane import osutil, paths
+
+
+def test_platform_constants_match_sys_platform():
+    assert osutil.IS_LINUX == sys.platform.startswith("linux")
+    assert osutil.IS_WINDOWS == sys.platform.startswith("win")
+    assert osutil.IS_MACOS == (sys.platform == "darwin")
+
+
+def test_detached_kwargs_posix_uses_new_session():
+    if osutil.IS_WINDOWS:  # this assertion is for the POSIX default
+        return
+    assert osutil.detached_kwargs() == {"start_new_session": True}
+
+
+def test_detached_kwargs_windows_uses_creationflags(monkeypatch):
+    monkeypatch.setattr(osutil, "IS_WINDOWS", True)
+    kwargs = osutil.detached_kwargs()
+    assert "creationflags" in kwargs and "start_new_session" not in kwargs
+
+
+# ------------------------------------------------------------- paths (POSIX)
+
+def test_runtime_dir_honours_xdg(monkeypatch):
+    monkeypatch.setattr(paths.osutil, "IS_WINDOWS", False)
+    monkeypatch.setenv("XDG_RUNTIME_DIR", "/run/user/1000")
+    assert paths.runtime_dir() == paths.Path("/run/user/1000") / "voxpane"
+
+
+def test_config_dir_honours_xdg(monkeypatch):
+    monkeypatch.setattr(paths.osutil, "IS_WINDOWS", False)
+    monkeypatch.setenv("XDG_CONFIG_HOME", "/home/x/.config")
+    assert paths.config_dir() == paths.Path("/home/x/.config") / "voxpane"
+
+
+# ------------------------------------------------------------- paths (Windows)
+
+def test_windows_dirs_use_appdata_and_localappdata(monkeypatch):
+    monkeypatch.setattr(paths.osutil, "IS_WINDOWS", True)
+    roaming = r"C:\Users\me\AppData\Roaming"
+    local = r"C:\Users\me\AppData\Local"
+    monkeypatch.setenv("APPDATA", roaming)
+    monkeypatch.setenv("LOCALAPPDATA", local)
+    assert paths.config_dir() == paths.Path(roaming) / "voxpane"
+    assert paths.data_dir() == paths.Path(local) / "voxpane"
+    assert paths.state_dir() == paths.Path(local) / "voxpane" / "state"
+    assert paths.runtime_dir() == paths.Path(local) / "voxpane" / "runtime"
+
+
+def test_windows_runtime_dir_never_calls_getuid(monkeypatch):
+    # os.getuid() doesn't exist on Windows; the Windows branch must never reach it.
+    monkeypatch.setattr(paths.osutil, "IS_WINDOWS", True)
+    monkeypatch.setenv("LOCALAPPDATA", r"C:\Users\me\AppData\Local")
+    monkeypatch.delenv("XDG_RUNTIME_DIR", raising=False)
+
+    def boom():
+        raise AssertionError("getuid must not be called on Windows")
+
+    monkeypatch.setattr(paths.os, "getuid", boom, raising=False)
+    assert paths.runtime_dir().name == "runtime"  # resolves without raising
+
+
+def test_speak_lock_is_noop_on_windows(monkeypatch):
+    from voxpane import speakers
+
+    monkeypatch.setattr(speakers.osutil, "IS_WINDOWS", True)
+    with speakers._speak_lock():  # must not touch fcntl or the filesystem
+        pass
