@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from types import SimpleNamespace
 
 import pytest
 
@@ -140,3 +141,79 @@ def test_overlay_supported_only_on_wlroots():
     assert desktop.overlay_supported({"desktop": {"backend": "sway"}}) is True
     assert desktop.overlay_supported({"desktop": {"backend": "x11"}}) is False
     assert desktop.overlay_supported({"desktop": {"backend": "wayland"}}) is False
+    assert desktop.overlay_supported({"desktop": {"backend": "windows"}}) is False
+
+
+# --------------------------------------------------------------- windows
+
+_WIN = {"desktop": {"backend": "windows"}}
+
+
+def test_detect_backend_windows_wins_first(monkeypatch):
+    monkeypatch.setattr(desktop.osutil, "IS_WINDOWS", True)
+    assert desktop.detect_backend() == desktop.WINDOWS
+
+
+def test_windows_is_a_valid_config_backend():
+    assert desktop.backend(_WIN) == desktop.WINDOWS  # accepted (in _KNOWN)
+
+
+def test_active_window_dispatches_to_windows_backend(monkeypatch):
+    fake = {"class": "WindowsTerminal.exe", "title": "claude", "id": "12345"}
+    monkeypatch.setattr(desktop, "_windows_active", lambda: fake)
+    assert desktop.active_window(_WIN) == fake
+
+
+def test_type_tool_unknown_backend_returns_none(monkeypatch):
+    # Windows has no shell typing tool; the hardened .get must not KeyError.
+    monkeypatch.setattr(desktop.shutil, "which", lambda name: f"/usr/bin/{name}")
+    assert desktop._type_tool(_WIN) is None
+
+
+def test_windows_clipboard_uses_powershell_set_clipboard(monkeypatch):
+    monkeypatch.setattr(desktop, "_powershell", lambda: "pwsh")
+    seen = {}
+    monkeypatch.setattr(desktop.subprocess, "run",
+                        lambda argv, **k: seen.update(argv=argv, input=k.get("input")))
+    desktop.clipboard_copy("héllo", _WIN)
+    assert seen["argv"][0] == "pwsh" and "Set-Clipboard" in seen["argv"][-1]
+    assert seen["input"] == "héllo"
+
+
+def test_windows_clipboard_falls_back_to_clip(monkeypatch):
+    monkeypatch.setattr(desktop, "_powershell", lambda: None)
+    monkeypatch.setattr(desktop.shutil, "which", lambda name: "/c/clip" if name == "clip" else None)
+    seen = {}
+    monkeypatch.setattr(desktop.subprocess, "run", lambda argv, **k: seen.update(argv=argv))
+    desktop.clipboard_copy("hi", _WIN)
+    assert seen["argv"] == ["clip"]
+
+
+def test_windows_clipboard_raises_without_a_tool(monkeypatch):
+    monkeypatch.setattr(desktop, "_powershell", lambda: None)
+    monkeypatch.setattr(desktop.shutil, "which", lambda name: None)
+    with pytest.raises(RuntimeError, match="no clipboard tool"):
+        desktop.clipboard_copy("x", _WIN)
+
+
+def test_windows_paste_sends_ctrl_v_and_enter(monkeypatch):
+    monkeypatch.setattr(desktop, "_powershell", lambda: "powershell")
+    runs = []
+    monkeypatch.setattr(desktop.subprocess, "run",
+                        lambda argv, **k: runs.append(argv) or SimpleNamespace(returncode=0))
+    assert desktop.paste_and_submit(_WIN, submit=True) is True
+    assert "SendKeys" in runs[0][-1] and "^v{ENTER}" in runs[0][-1]
+
+
+def test_windows_paste_without_submit_omits_enter(monkeypatch):
+    monkeypatch.setattr(desktop, "_powershell", lambda: "powershell")
+    runs = []
+    monkeypatch.setattr(desktop.subprocess, "run",
+                        lambda argv, **k: runs.append(argv) or SimpleNamespace(returncode=0))
+    desktop.paste_and_submit(_WIN)
+    assert "^v" in runs[0][-1] and "{ENTER}" not in runs[0][-1]
+
+
+def test_windows_paste_returns_false_without_powershell(monkeypatch):
+    monkeypatch.setattr(desktop, "_powershell", lambda: None)
+    assert desktop.paste_and_submit(_WIN) is False

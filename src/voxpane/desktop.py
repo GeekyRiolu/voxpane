@@ -8,8 +8,10 @@ stays neutral.
 
 Backends: ``hyprland`` + ``sway`` (wlroots/Wayland) and ``x11`` are fully wired;
 ``wayland`` (generic — GNOME/KDE) is best-effort — there is no reliable focused-window
-CLI there, so the focus gate simply relaxes and typing needs ``ydotool``. Detection is
-by environment; ``[desktop] backend`` in config overrides it (``auto`` = detect).
+CLI there, so the focus gate simply relaxes and typing needs ``ydotool``. ``windows``
+(native Win32, Phase 2) reads focus via ctypes and pastes/copies via PowerShell.
+Detection is by environment (``sys.platform`` first, then the session); ``[desktop]
+backend`` in config overrides it (``auto`` = detect).
 
 Only the Hyprland path is exercised on the author's machine; the others are written to
 spec + unit-tested and are considered EXPERIMENTAL until validated on those sessions.
@@ -23,11 +25,14 @@ import shutil
 import subprocess
 from typing import Any
 
+from . import osutil
+
 HYPRLAND = "hyprland"
 SWAY = "sway"
 WAYLAND = "wayland"  # generic Wayland (GNOME/KDE) — degraded (no focus CLI)
 X11 = "x11"
-_KNOWN = (HYPRLAND, SWAY, WAYLAND, X11)
+WINDOWS = "windows"  # native Win32 (Phase 2) — ctypes focus, PowerShell paste/clipboard
+_KNOWN = (HYPRLAND, SWAY, WAYLAND, X11, WINDOWS)
 
 
 def _run(cmd: list[str], timeout: float = 2.0) -> str | None:
@@ -46,6 +51,8 @@ def _desktop_cfg(cfg: dict[str, Any] | None) -> dict[str, Any]:
 def detect_backend() -> str:
     """Pick a backend from the environment. wlroots compositors expose their own
     sockets; fall back to generic Wayland, then X11, then whatever tool exists."""
+    if osutil.IS_WINDOWS:
+        return WINDOWS
     if os.environ.get("HYPRLAND_INSTANCE_SIGNATURE"):
         return HYPRLAND
     if os.environ.get("SWAYSOCK"):
@@ -128,11 +135,49 @@ def _x11_active() -> dict[str, str] | None:
     return {"class": cls, "title": title, "id": wid}
 
 
+def _windows_active() -> dict[str, str] | None:
+    """Focused window on Windows via Win32 (ctypes): GetForegroundWindow → title +
+    owning process exe. ``class`` carries the exe basename (e.g. ``WindowsTerminal.exe``),
+    mirroring how the Linux backends report a window class. Unvalidated on Linux —
+    exercised on a real Windows box."""
+    import ctypes
+    from ctypes import wintypes
+
+    user32 = ctypes.windll.user32
+    kernel32 = ctypes.windll.kernel32
+    user32.GetForegroundWindow.restype = wintypes.HWND
+    kernel32.OpenProcess.restype = wintypes.HANDLE
+
+    hwnd = user32.GetForegroundWindow()
+    if not hwnd:
+        return None
+    length = user32.GetWindowTextLengthW(hwnd)
+    buf = ctypes.create_unicode_buffer(length + 1)
+    user32.GetWindowTextW(hwnd, buf, length + 1)
+    title = buf.value
+
+    pid = wintypes.DWORD()
+    user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+    exe = ""
+    PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+    handle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid.value)
+    if handle:
+        try:
+            size = wintypes.DWORD(260)
+            path_buf = ctypes.create_unicode_buffer(size.value)
+            if kernel32.QueryFullProcessImageNameW(handle, 0, path_buf, ctypes.byref(size)):
+                exe = path_buf.value.rsplit("\\", 1)[-1]  # basename
+        finally:
+            kernel32.CloseHandle(handle)
+    return {"class": exe, "title": title, "id": str(int(hwnd))}
+
+
 def active_window(cfg: dict[str, Any] | None = None) -> dict[str, str] | None:
     """The focused window as ``{class, title, id}``, or None if undeterminable — which
     the focus gate treats as 'don't block'. Generic Wayland (GNOME/KDE) has no reliable
     focused-window CLI, so it returns None (focus gate off; the wake word still works)."""
-    match = {HYPRLAND: _hyprland_active, SWAY: _sway_active, X11: _x11_active}
+    match = {HYPRLAND: _hyprland_active, SWAY: _sway_active, X11: _x11_active,
+             WINDOWS: _windows_active}
     fn = match.get(backend(cfg))
     return fn() if fn else None
 
@@ -148,14 +193,33 @@ def _type_tool(cfg: dict[str, Any] | None) -> str | None:
         SWAY: ("wtype", "ydotool"),
         WAYLAND: ("ydotool", "wtype"),  # GNOME/KDE reject wtype's protocol
         X11: ("xdotool", "ydotool"),
-    }[backend(cfg)]
+    }.get(backend(cfg), ())  # unknown/Windows backend → no shell typing tool
     return next((t for t in order if shutil.which(t)), None)
+
+
+def _powershell() -> str | None:
+    return shutil.which("pwsh") or shutil.which("powershell")
+
+
+def _windows_paste_and_submit(submit: bool) -> bool:
+    """Paste (Ctrl+V) into the focused window via PowerShell SendKeys, then Enter if
+    ``submit``. PowerShell avoids hand-rolled ctypes SendInput structs — slower, but a
+    Windows tester can run the same one-liner to debug. False if PowerShell is absent."""
+    pwsh = _powershell()
+    if not pwsh:
+        return False
+    keys = "^v" + ("{ENTER}" if submit else "")
+    cmd = ("Add-Type -AssemblyName System.Windows.Forms; "
+           f"[System.Windows.Forms.SendKeys]::SendWait('{keys}')")
+    return subprocess.run([pwsh, "-NoProfile", "-Command", cmd]).returncode == 0
 
 
 def paste_and_submit(cfg: dict[str, Any] | None = None, *, submit: bool = False) -> bool:
     """Inject the Ctrl+Shift+V paste chord into the focused window, then Enter if
     ``submit``. Returns False if no typing tool is available (caller keeps the text on
     the clipboard as the fallback)."""
+    if backend(cfg) == WINDOWS:
+        return _windows_paste_and_submit(submit=submit)
     tool = _type_tool(cfg)
     if tool == "wtype":
         subprocess.run(
@@ -199,8 +263,27 @@ def _clip_argv(cfg: dict[str, Any] | None) -> list[str] | None:
     return next((argv for t, argv in tools if shutil.which(t)), None)
 
 
+def _win_clipboard_set(text: str) -> None:
+    """Set the Windows clipboard, Unicode-safe. Prefers PowerShell ``Set-Clipboard``
+    (reads all of stdin as one UTF-8 string); falls back to built-in ``clip.exe``."""
+    pwsh = _powershell()
+    if pwsh:
+        cmd = ("[Console]::InputEncoding=[Text.Encoding]::UTF8; "
+               "Set-Clipboard -Value ([Console]::In.ReadToEnd())")
+        subprocess.run([pwsh, "-NoProfile", "-Command", cmd],
+                       input=text, text=True, encoding="utf-8", check=True)
+        return
+    if shutil.which("clip"):
+        subprocess.run(["clip"], input=text, text=True, check=True)
+        return
+    raise RuntimeError("no clipboard tool — expected PowerShell (Set-Clipboard) or clip.exe")
+
+
 def clipboard_copy(text: str, cfg: dict[str, Any] | None = None) -> None:
     """Put ``text`` on the clipboard. Raises if no clipboard tool is installed."""
+    if backend(cfg) == WINDOWS:
+        _win_clipboard_set(text)
+        return
     argv = _clip_argv(cfg)
     if argv is None:
         raise RuntimeError(

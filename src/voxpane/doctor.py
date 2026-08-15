@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from . import config as config_mod
-from . import desktop, paths
+from . import desktop, osutil, paths
 
 # Package-manager install-command prefixes, tried in order — so hints match the
 # user's distro instead of assuming Arch.
@@ -50,6 +50,11 @@ def _pkg_manager() -> tuple[str, str] | None:
 def _install_hint(tool: str) -> str:
     """A distro-appropriate 'how to install <tool>' string. Falls back to a neutral
     'install <pkg>' when no known package manager is on PATH."""
+    if osutil.IS_WINDOWS:
+        for mgr in ("winget", "scoop", "choco"):
+            if shutil.which(mgr):
+                return f"{mgr} install {tool}"
+        return f"install {tool}"
     names = _PKG_NAMES.get(tool, {})
     mgr = _pkg_manager()
     if mgr:
@@ -82,12 +87,25 @@ def _backend_check(be: str) -> Check:
     bits = [be]
     if not tested:
         bits.append("experimental")
-    bits.append("pet ✓" if supported else "no pet (needs Hyprland/Sway)")
+    if supported:
+        bits.append("pet ✓")
+    else:
+        bits.append("no pet (Linux/wlroots only)" if osutil.IS_WINDOWS
+                    else "no pet (needs Hyprland/Sway)")
     return Check("desktop", True, ", ".join(bits))
 
 
 def _audio_input_check() -> Check:
-    """A mic-capture tool must exist: pw-record (PipeWire) or parec (PulseAudio)."""
+    """A mic-capture tool must exist: pw-record/parec (PipeWire/PulseAudio) on Linux,
+    or the sounddevice (WASAPI) Python module on Windows."""
+    if osutil.IS_WINDOWS:
+        try:
+            import sounddevice  # noqa: F401
+        except Exception as exc:  # PortAudio or the module itself missing
+            return Check("audio capture", False,
+                         f"sounddevice unavailable ({type(exc).__name__})",
+                         "pip install voxpane[windows]")
+        return Check("audio capture", True, "sounddevice (WASAPI)")
     for tool in ("pw-record", "parec"):
         path = shutil.which(tool)
         if path:
@@ -101,16 +119,23 @@ def _desktop_binaries(cfg: dict[str, Any], be: str) -> list[tuple[str, str, bool
     The focus reader is advisory (its absence just relaxes the focus gate); the typing
     tool is required only in ``focus`` delivery mode (other modes fall back to the
     clipboard); the clipboard tool is always required — it is the universal fallback."""
+    if be == desktop.WINDOWS:
+        # Focus is read via ctypes (no binary); paste + clipboard go through PowerShell,
+        # which ships with Windows. Required only in focus mode (else clipboard fallback).
+        typer_soft = cfg["delivery"]["mode"] != "focus"
+        return [("powershell", "ships with Windows — used for paste + clipboard", typer_soft)]
+
     focus = {desktop.HYPRLAND: "hyprctl", desktop.SWAY: "swaymsg", desktop.X11: "xdotool"}.get(be)
     typer = {desktop.HYPRLAND: "wtype", desktop.SWAY: "wtype",
-             desktop.X11: "xdotool", desktop.WAYLAND: "ydotool"}[be]
+             desktop.X11: "xdotool", desktop.WAYLAND: "ydotool"}.get(be, "")
     clip = "xclip" if be == desktop.X11 else "wl-copy"
 
     rows: list[tuple[str, str, bool]] = []
     if focus:
         rows.append((focus, _install_hint(focus) + " — the focus gate needs it", True))
     typer_soft = cfg["delivery"]["mode"] != "focus"
-    rows.append((typer, _install_hint(typer) + " — types into the focused app", typer_soft))
+    if typer:
+        rows.append((typer, _install_hint(typer) + " — types into the focused app", typer_soft))
     rows.append((clip, _install_hint(clip) + " — clipboard delivery + fallback", False))
 
     # X11 uses xdotool for both focus and typing; dedup, keeping the strictest (hard).
@@ -248,20 +273,24 @@ def run_checks(cfg: dict[str, Any] | None = None) -> list[Check]:
     checks.append(_audio_input_check())
     for name, hint, soft in _desktop_binaries(cfg, be):
         checks.append(_bin(name, hint, soft=soft))
-    checks.append(_bin("notify-send", _install_hint("notify-send") + " — desktop notifications",
-                       soft=True))
-    checks.append(_bin("jq", _install_hint("jq") + " — the Claude Code hook scripts need it"))
-    if desktop.overlay_supported(cfg):
-        checks.append(_bin("eww", "build eww (github.com/elkowars/eww) — the pixel pet",
+    # notifications / hook glue / pet / media-pause are Linux-only (Windows defers these).
+    if not osutil.IS_WINDOWS:
+        checks.append(_bin("notify-send", _install_hint("notify-send") + " — desktop notifications",
                            soft=True))
-    checks.append(_bin("playerctl", _install_hint("playerctl") + " — pauses media on wake",
-                       soft=True))
+        checks.append(_bin("jq", _install_hint("jq") + " — the Claude Code hook scripts need it"))
+        if desktop.overlay_supported(cfg):
+            checks.append(_bin("eww", "build eww (github.com/elkowars/eww) — the pixel pet",
+                               soft=True))
+        checks.append(_bin("playerctl", _install_hint("playerctl") + " — pauses media on wake",
+                           soft=True))
     checks.append(_stt(cfg))
-    checks.append(_default_source())
+    if not osutil.IS_WINDOWS:  # wpctl / Echo backends are Linux-only
+        checks.append(_default_source())
     checks.append(_runtime_dir_writable())
     checks.append(_tmux_target(cfg))
-    checks.append(_alexa_check(cfg))
-    checks.append(_bluez_check(cfg))
+    if not osutil.IS_WINDOWS:
+        checks.append(_alexa_check(cfg))
+        checks.append(_bluez_check(cfg))
     return checks
 
 
