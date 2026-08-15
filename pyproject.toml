@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "voxpane"
-version = "0.2.0"
+version = "0.3.0"
 description = "Talk to Claude Code, and have your Echo Dot tell you what it did."
 readme = "README.md"
 requires-python = ">=3.11"

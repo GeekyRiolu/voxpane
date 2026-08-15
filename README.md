@@ -91,6 +91,11 @@ for the full design and the reasoning behind each constraint.
   desktop notifications.
 - Python **3.11+**.
 
+> **Windows** *(experimental, Phase 2)*: push-to-talk **dictation** works today —
+> mic → Whisper → paste into the focused terminal. Spoken output, the wake word, and
+> the always-on service are Linux-only for now. See
+> [Windows setup](docs/INSTALL.md#windows-experimental--mvp-dictation). macOS is next.
+
 ## Quick start
 
 ```bash
