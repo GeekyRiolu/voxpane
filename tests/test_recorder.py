@@ -40,6 +40,28 @@ def test_start_builds_pw_record_and_persists_state(runtime, monkeypatch):
     assert state["pid"] == 4242 and state["wav"] == str(wav)
 
 
+def test_start_falls_back_to_parecord_without_pw_record(runtime, monkeypatch):
+    monkeypatch.setattr(recorder, "is_recording", lambda: False)
+    monkeypatch.setattr(recorder.shutil, "which",
+                        lambda name: None if name == "pw-record" else f"/usr/bin/{name}")
+    monkeypatch.setattr(recorder.subprocess, "Popen", FakePopen)
+
+    recorder.start(config.defaults())
+
+    cmd = FakePopen.last.cmd
+    assert "parecord" in cmd and "--format=s16le" in cmd
+    assert json.loads(paths.record_state_file().read_text())["tool"] == "parecord"
+
+
+def test_start_raises_when_no_recorder_installed(runtime, monkeypatch):
+    monkeypatch.setattr(recorder, "is_recording", lambda: False)
+    absent = {"pw-record", "parecord"}
+    monkeypatch.setattr(recorder.shutil, "which",
+                        lambda name: None if name in absent else f"/usr/bin/{name}")
+    with pytest.raises(RuntimeError, match="no recorder"):
+        recorder.start(config.defaults())
+
+
 def test_start_is_noop_when_already_recording(runtime, monkeypatch):
     monkeypatch.setattr(recorder, "is_recording", lambda: True)
     paths.ensure(paths.runtime_dir())
@@ -82,11 +104,32 @@ def test_stop_sends_sigint_never_sigkill(runtime, monkeypatch):
 
     assert result == wav
     joined = [" ".join(c) for c in ran]
-    assert "pkill -INT -f pw-record" in joined
+    assert "pkill -INT -x pw-record" in joined
     assert not any("-KILL" in j or "-9" in j for j in joined)
     assert not paths.record_state_file().exists()  # state cleared
 
 
+def test_stop_signals_the_recorder_named_in_state(runtime, monkeypatch):
+    paths.ensure(paths.runtime_dir())
+    wav = runtime / "vp.wav"
+    wav.write_bytes(b"RIFF____WAVE")
+    paths.record_state_file().write_text(
+        json.dumps({"wav": str(wav), "pid": 999_999, "tool": "parecord", "started_at": 0})
+    )
+    ran: list[list[str]] = []
+
+    def fake_run(cmd, **kwargs):
+        ran.append(cmd)
+        return type("R", (), {"returncode": 1})()
+
+    monkeypatch.setattr(recorder.subprocess, "run", fake_run)
+    monkeypatch.setattr(recorder.shutil, "which",
+                        lambda name: f"/usr/bin/{name}" if name in ("pkill", "pgrep") else None)
+
+    recorder.stop(timeout_s=0.3)
+    assert "pkill -INT -x parecord" in [" ".join(c) for c in ran]
+
+
 def test_stop_returns_none_when_idle(runtime, monkeypatch):
-    monkeypatch.setattr(recorder, "_pgrep_pw_record", lambda: False)
+    monkeypatch.setattr(recorder, "_running_recorder", lambda: None)
     assert recorder.stop(timeout_s=0.1) is None

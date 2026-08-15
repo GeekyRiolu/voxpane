@@ -57,19 +57,48 @@ def _pid_alive(pid: int) -> bool:
     return True
 
 
-def _pgrep_pw_record() -> bool:
+# WAV-file recorders we know how to drive, in preference order: PipeWire first,
+# then the PulseAudio equivalent (pure-Pulse systems have no pw-record).
+_RECORDERS = ("pw-record", "parecord")
+
+
+def _running_recorder() -> str | None:
+    """The recorder binary currently running (by exact process name), or None."""
     if not shutil.which("pgrep"):
-        return False
-    # Match the process NAME exactly (-x), not the full cmdline (-f): -f would
-    # false-positive on any process whose args merely contain "pw-record".
-    return subprocess.run(["pgrep", "-x", "pw-record"], capture_output=True).returncode == 0
+        return None
+    for tool in _RECORDERS:
+        # Match the process NAME exactly (-x), not the full cmdline (-f): -f would
+        # false-positive on any process whose args merely contain the name.
+        if subprocess.run(["pgrep", "-x", tool], capture_output=True).returncode == 0:
+            return tool
+    return None
+
+
+def _record_argv(rate: int, source: str, wav: Path) -> list[str] | None:
+    """Argv to record 16 kHz mono s16 WAV to ``wav``. Prefers PipeWire's ``pw-record``,
+    falls back to PulseAudio's ``parecord``. None if neither is installed."""
+    targeted = bool(source) and source != "default"
+    if shutil.which("pw-record"):
+        cmd = ["pw-record", f"--rate={rate}", "--channels=1", "--format=s16"]
+        if targeted:
+            cmd.append(f"--target={source}")
+        cmd.append(str(wav))
+        return cmd
+    if shutil.which("parecord"):
+        cmd = ["parecord", f"--rate={rate}", "--channels=1", "--format=s16le",
+               "--file-format=wav"]
+        if targeted:
+            cmd.append(f"--device={source}")
+        cmd.append(str(wav))
+        return cmd
+    return None
 
 
 def is_recording() -> bool:
     state = _read_state()
     if state and _pid_alive(int(state["pid"])):
         return True
-    return _pgrep_pw_record()
+    return _running_recorder() is not None
 
 
 def start(cfg: dict[str, Any]) -> Path:
@@ -83,18 +112,18 @@ def start(cfg: dict[str, Any]) -> Path:
         if existing:
             return Path(existing["wav"])
 
-    if not shutil.which("pw-record"):
-        raise RuntimeError("pw-record not found — install pipewire (see: voxpane doctor)")
-
     rate = int(cfg["audio"]["rate"])
     max_seconds = int(cfg["audio"]["max_seconds"])
     source = str(cfg["audio"].get("source", "default"))
     wav = Path(f"/tmp/vp-{int(time.time())}.wav")
 
-    rec = ["pw-record", f"--rate={rate}", "--channels=1", "--format=s16"]
-    if source and source != "default":
-        rec.append(f"--target={source}")
-    rec.append(str(wav))
+    rec = _record_argv(rate, source, wav)
+    if rec is None:
+        raise RuntimeError(
+            "no recorder found — install PipeWire (pw-record) or PulseAudio "
+            "(parecord); see: voxpane doctor"
+        )
+    tool = rec[0]
 
     # A hard ceiling on recording length; SIGINT (not KILL) so the WAV stays valid.
     cmd = rec
@@ -108,7 +137,7 @@ def start(cfg: dict[str, Any]) -> Path:
         stderr=subprocess.DEVNULL,
         start_new_session=True,  # survive the CLI process exiting
     )
-    _write_state({"wav": str(wav), "pid": proc.pid, "started_at": time.time()})
+    _write_state({"wav": str(wav), "pid": proc.pid, "tool": tool, "started_at": time.time()})
     return wav
 
 
@@ -116,12 +145,15 @@ def stop(timeout_s: float = 5.0) -> Path | None:
     """SIGINT the running recorder and return the finalised WAV path, or ``None``
     if nothing was recording."""
     state = _read_state()
-    if not state and not _pgrep_pw_record():
+    running = _running_recorder()
+    if not state and not running:
         return None
 
-    # SIGINT, NEVER SIGKILL — SIGKILL leaves the WAV header unfinalised.
+    # SIGINT, NEVER SIGKILL — SIGKILL leaves the WAV header unfinalised. Signal the
+    # exact recorder that's running (from state, else whatever's live, else default).
+    tool = (state or {}).get("tool") or running or "pw-record"
     if shutil.which("pkill"):
-        subprocess.run(["pkill", "-INT", "-f", "pw-record"], capture_output=True)
+        subprocess.run(["pkill", "-INT", "-x", tool], capture_output=True)
     elif state:
         try:
             os.kill(int(state["pid"]), signal.SIGINT)
@@ -136,7 +168,7 @@ def stop(timeout_s: float = 5.0) -> Path | None:
         if state and _pid_alive(int(state["pid"])):
             time.sleep(0.05)
             continue
-        if _pgrep_pw_record():
+        if _running_recorder():
             time.sleep(0.05)
             continue
         break
