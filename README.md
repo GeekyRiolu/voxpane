@@ -113,11 +113,6 @@ Then verify:
 voxpane doctor
 ```
 
-**Prefer Docker?** There's a multi-arch image of the voice engine (Whisper STT +
-Piper TTS + CLI) — `docker pull ghcr.io/geekyriolu/voxpane` and pass your host
-audio through. The full hands-free desktop layer (pet, wake-word terminal, hooks)
-still wants the native install above. See **[docs/DOCKER.md](docs/DOCKER.md)**.
-
 ```
 voxpane doctor
 
