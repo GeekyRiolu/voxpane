@@ -34,6 +34,17 @@ focus_paste_delay_ms = 80      # focus mode: wait before the paste chord
 strip_filler = true
 trailing_submit_phrase = "send it"   # say this to submit that one utterance
 
+[desktop]
+# Which desktop/compositor voxpane targets for window-focus, typing, and clipboard
+# (audio, media pause, and notifications work everywhere regardless).
+#   "auto"     detect from the session (recommended)
+#   "hyprland" / "sway"   wlroots Wayland — wtype + wl-copy + hyprctl/swaymsg focus
+#   "x11"      X11 — xdotool + xclip/xsel
+#   "wayland"  generic Wayland (GNOME/KDE) — ydotool typing, no focus gate (experimental)
+backend = "auto"
+type_tool = ""                 # force a typing tool (wtype/xdotool/ydotool); "" = auto
+clipboard_tool = ""            # force a clipboard tool (wl-copy/xclip/xsel); "" = auto
+
 [listen]
 # Hands-free conversation mode: a continuous VAD loop, auto-started per Claude
 # session (SessionStart/End hooks). No push-to-talk. Needs the `listen` extra:

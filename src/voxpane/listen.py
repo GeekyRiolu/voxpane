@@ -31,7 +31,7 @@ from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
-from . import paths
+from . import desktop, paths
 
 FRAME_MS = 20
 RATE = 16000
@@ -124,7 +124,7 @@ def toggle_running() -> bool:
         stop()
         return False
     window = _active_window()
-    if window and window.get("address") and _is_terminal_window(window):
+    if window and window.get("id") and _is_terminal_window(window):
         _save_windows({"toggle": window})
     _spawn_listener()
     return True
@@ -142,26 +142,13 @@ def _write_sessions(sessions: set[str]) -> None:
     paths.listen_sessions_file().write_text(" ".join(sorted(sessions)))
 
 
-# --------------------------------------------------- focus gate (Hyprland)
+# --------------------------------------------------- focus gate (desktop-agnostic)
 
-def _active_window() -> dict[str, str] | None:
-    """The focused window on Hyprland, or None if it can't be determined."""
-    if not shutil.which("hyprctl"):
-        return None
-    try:
-        result = subprocess.run(
-            ["hyprctl", "activewindow", "-j"], capture_output=True, text=True, timeout=2
-        )
-        window = json.loads(result.stdout)
-    except (OSError, subprocess.SubprocessError, json.JSONDecodeError):
-        return None
-    if not isinstance(window, dict):
-        return None
-    return {
-        "address": window.get("address", ""),
-        "class": window.get("class", ""),
-        "title": window.get("title", ""),
-    }
+def _active_window(cfg: dict[str, Any] | None = None) -> dict[str, str] | None:
+    """The focused window as ``{class, title, id}`` via the detected desktop backend
+    (Hyprland/Sway/X11; None on GNOME/KDE-Wayland). Thin wrapper so callers — and
+    tests — have one seam to mock."""
+    return desktop.active_window(cfg)
 
 
 def _load_windows() -> dict[str, dict[str, str]]:
@@ -200,7 +187,7 @@ def _capture_window(session_id: str) -> None:
     # Only remember terminal windows: Claude Code runs in a terminal, so a browser
     # focused when the session registers must not become "the Claude window" (it
     # would gate the mic to that app and misroute wake requests into it).
-    if window and window.get("address") and _is_terminal_window(window):
+    if window and window.get("id") and _is_terminal_window(window):
         windows = _load_windows()
         windows[session_id] = window
         _save_windows(windows)
@@ -217,17 +204,17 @@ def focus_ok(cfg: dict[str, Any]) -> bool:
     listen_cfg = cfg["listen"]
     if not listen_cfg.get("focus_only", True):
         return True
-    active = _active_window()
-    if active is None:  # can't detect focus (no hyprctl) — don't block
+    active = _active_window(cfg)
+    if active is None:  # can't detect focus (no backend CLI) — don't block
         return True
     match = (listen_cfg.get("focus_match") or "").strip()
     if match:
         pattern = re.compile(match, re.IGNORECASE)
         return bool(pattern.search(active["class"]) or pattern.search(active["title"]))
-    addresses = {w.get("address") for w in _load_windows().values() if w.get("address")}
-    if not addresses:  # nothing captured to gate against — don't block
+    ids = {w.get("id") for w in _load_windows().values() if w.get("id")}
+    if not ids:  # nothing captured to gate against — don't block
         return True
-    return active["address"] in addresses
+    return active["id"] in ids
 
 
 def _dictation_target_focused(cfg: dict[str, Any]) -> bool:
@@ -238,7 +225,7 @@ def _dictation_target_focused(cfg: dict[str, Any]) -> bool:
     (a stale capture silently swallowed your words). This splits free dictation
     (focused on a terminal) from wake-word delivery (focused on a browser / nothing).
     """
-    active = _active_window()
+    active = _active_window(cfg)
     if active is None:
         return False
     match = (cfg["listen"].get("focus_match") or "").strip()

@@ -103,40 +103,40 @@ def test_focus_ok_true_when_disabled():
 
 
 def test_focus_ok_true_for_the_captured_window(monkeypatch):
-    win = {"address": "0xabc", "class": "foot", "title": "claude"}
-    monkeypatch.setattr(listen, "_active_window", lambda: win)
+    win = {"id": "0xabc", "class": "foot", "title": "claude"}
+    monkeypatch.setattr(listen, "_active_window", lambda cfg=None:win)
     monkeypatch.setattr(listen, "_load_windows", lambda: {"s1": win})
     assert listen.focus_ok(config.defaults()) is True
 
 
 def test_focus_ok_false_for_a_different_window(monkeypatch):
-    other = {"address": "0xff", "class": "firefox", "title": "YouTube"}
-    captured = {"address": "0xabc", "class": "foot", "title": ""}
-    monkeypatch.setattr(listen, "_active_window", lambda: other)
+    other = {"id": "0xff", "class": "firefox", "title": "YouTube"}
+    captured = {"id": "0xabc", "class": "foot", "title": ""}
+    monkeypatch.setattr(listen, "_active_window", lambda cfg=None:other)
     monkeypatch.setattr(listen, "_load_windows", lambda: {"s1": captured})
     assert listen.focus_ok(config.defaults()) is False  # ignores YouTube
 
 
 def test_focus_ok_true_when_nothing_captured(monkeypatch):
-    win = {"address": "0xabc", "class": "foot", "title": ""}
-    monkeypatch.setattr(listen, "_active_window", lambda: win)
+    win = {"id": "0xabc", "class": "foot", "title": ""}
+    monkeypatch.setattr(listen, "_active_window", lambda cfg=None:win)
     monkeypatch.setattr(listen, "_load_windows", lambda: {})
     assert listen.focus_ok(config.defaults()) is True  # don't block if unset
 
 
 def test_focus_ok_true_when_undetectable(monkeypatch):
-    monkeypatch.setattr(listen, "_active_window", lambda: None)  # no hyprctl
+    monkeypatch.setattr(listen, "_active_window", lambda cfg=None:None)  # no hyprctl
     assert listen.focus_ok(config.defaults()) is True
 
 
 def test_focus_match_regex_override(monkeypatch):
     cfg = config.defaults()
     cfg["listen"]["focus_match"] = "kitty|foot"
-    term = {"address": "0x1", "class": "foot", "title": "x"}
-    browser = {"address": "0x2", "class": "firefox", "title": "yt"}
-    monkeypatch.setattr(listen, "_active_window", lambda: term)
+    term = {"id": "0x1", "class": "foot", "title": "x"}
+    browser = {"id": "0x2", "class": "firefox", "title": "yt"}
+    monkeypatch.setattr(listen, "_active_window", lambda cfg=None:term)
     assert listen.focus_ok(cfg) is True
-    monkeypatch.setattr(listen, "_active_window", lambda: browser)
+    monkeypatch.setattr(listen, "_active_window", lambda cfg=None:browser)
     assert listen.focus_ok(cfg) is False
 
 
@@ -229,7 +229,7 @@ def test_capture_window_skips_non_terminal(tmp_path, monkeypatch):
     monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
     monkeypatch.setattr(
         listen, "_active_window",
-        lambda: {"address": "0x1", "class": "chromium", "title": "a video"},
+        lambda: {"id": "0x1", "class": "chromium", "title": "a video"},
     )
     listen._capture_window("s1")
     assert listen._load_windows() == {}  # a browser must not become "the Claude window"
@@ -239,10 +239,10 @@ def test_capture_window_remembers_terminal(tmp_path, monkeypatch):
     monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
     monkeypatch.setattr(
         listen, "_active_window",
-        lambda: {"address": "0x2", "class": "Alacritty", "title": "claude"},
+        lambda: {"id": "0x2", "class": "Alacritty", "title": "claude"},
     )
     listen._capture_window("s1")
-    assert listen._load_windows()["s1"]["address"] == "0x2"
+    assert listen._load_windows()["s1"]["id"] == "0x2"
 
 
 def test_resolve_folder_matches_repo_by_voice(tmp_path):
@@ -338,7 +338,7 @@ def _prep_utterance(monkeypatch, tmp_path, *, transcript, window, media=False, c
     monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
     paths.ensure(paths.runtime_dir())  # handle_utterance writes a temp wav here
     monkeypatch.setattr("voxpane.transcriber.transcribe", lambda wav, cfg: transcript)
-    monkeypatch.setattr(listen, "_active_window", lambda: window)
+    monkeypatch.setattr(listen, "_active_window", lambda cfg=None:window)
     monkeypatch.setattr(listen, "_media_playing", lambda: media)
     monkeypatch.setattr(listen, "_load_windows", lambda: captured or {})
     monkeypatch.setattr("voxpane.config.load_commands", lambda: {})
@@ -348,8 +348,8 @@ def _prep_utterance(monkeypatch, tmp_path, *, transcript, window, media=False, c
     )
 
 
-_TERM = {"class": "Alacritty", "title": "claude", "address": "0x1"}
-_BROWSER = {"class": "chromium", "title": "YouTube", "address": "0x9"}
+_TERM = {"class": "Alacritty", "title": "claude", "id": "0x1"}
+_BROWSER = {"class": "chromium", "title": "YouTube", "id": "0x9"}
 
 
 def test_dictates_when_terminal_focused(tmp_path, monkeypatch):
@@ -405,8 +405,8 @@ def test_dictates_into_any_focused_terminal(tmp_path, monkeypatch):
     # if a different window was captured. (Robustness over precision.)
     _prep_utterance(
         monkeypatch, tmp_path, transcript="run the tests",
-        window={"class": "Alacritty", "title": "htop", "address": "0xOTHER"},
-        captured={"s": {"address": "0xCLAUDE"}},
+        window={"class": "Alacritty", "title": "htop", "id": "0xOTHER"},
+        captured={"s": {"id": "0xCLAUDE"}},
     )
     got = {}
     monkeypatch.setattr("voxpane.deliver.deliver",
@@ -472,7 +472,7 @@ def test_toggle_running_round_trip(tmp_path, monkeypatch):
     monkeypatch.setattr(listen, "_all_listener_pids", list)  # no orphan strays
     monkeypatch.setattr(listen, "_spawn_listener", lambda: state.__setitem__("on", True))
     monkeypatch.setattr(listen, "stop", lambda: state.__setitem__("on", False))
-    monkeypatch.setattr(listen, "_active_window", lambda: None)  # nothing to capture
+    monkeypatch.setattr(listen, "_active_window", lambda cfg=None:None)  # nothing to capture
     assert listen.toggle_running() is True    # was off -> spawn -> running
     assert state["on"] is True
     assert listen.toggle_running() is False   # was on -> stop -> off

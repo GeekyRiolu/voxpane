@@ -35,6 +35,7 @@ _SAFETY_DEFAULTS: dict[str, Any] = {
         "auto_submit": False,
         "focus_paste_delay_ms": 80,
     },
+    "desktop": {"backend": "auto", "type_tool": "", "clipboard_tool": ""},
     "behavior": {"strip_filler": True, "trailing_submit_phrase": "send it"},
     "listen": {
         "enabled": True,

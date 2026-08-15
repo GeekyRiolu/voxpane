@@ -4,10 +4,10 @@
              mandatory or "Enter"/"Space" get interpreted as key names). No Enter
              unless auto-submit. Fall back to clipboard with a warning if the
              pane is gone.
-  focus      ``wl-copy`` then paste into the focused window with
-             ``wtype -M ctrl -M shift -k v -m shift -m ctrl`` after a configurable
-             ~80 ms pre-delay.
-  clipboard  ``wl-copy`` only.
+  focus      copy to clipboard then Ctrl+Shift+V into the focused window, via the
+             detected desktop backend (:mod:`voxpane.desktop` — wtype/xdotool/ydotool)
+             after a configurable ~80 ms pre-delay.
+  clipboard  clipboard only (wl-copy / xclip / xsel, per backend).
 
 Never auto-submit by default: submitting a mis-transcription is worse than a
 wasted keystroke.
@@ -19,6 +19,8 @@ import shutil
 import subprocess
 import time
 from typing import Any
+
+from . import desktop
 
 
 def deliver(text: str, cfg: dict[str, Any], *, submit: bool = False) -> str:
@@ -32,11 +34,11 @@ def deliver(text: str, cfg: dict[str, Any], *, submit: bool = False) -> str:
         return _deliver_tmux(text, cfg, submit=submit)
     if mode == "focus":
         return _deliver_focus(text, cfg, submit=submit)
-    return _deliver_clipboard(text)
+    return _deliver_clipboard(text, cfg)
 
 
-def _deliver_clipboard(text: str) -> str:
-    to_clipboard(text)
+def _deliver_clipboard(text: str, cfg: dict[str, Any]) -> str:
+    to_clipboard(text, cfg)
     return "copied to clipboard"
 
 
@@ -64,23 +66,17 @@ def _deliver_tmux(text: str, cfg: dict[str, Any], *, submit: bool) -> str:
 
 
 def _deliver_focus(text: str, cfg: dict[str, Any], *, submit: bool = False) -> str:
-    to_clipboard(text)
+    to_clipboard(text, cfg)
     delay_ms = int(cfg["delivery"].get("focus_paste_delay_ms", 80))
     time.sleep(delay_ms / 1000)
-    if not shutil.which("wtype"):
-        return "copied to clipboard (wtype missing)"
-    # Ctrl+Shift+V paste into the focused window.
-    subprocess.run(
-        ["wtype", "-M", "ctrl", "-M", "shift", "-k", "v", "-m", "shift", "-m", "ctrl"],
-        check=True,
-    )
-    if submit:
-        subprocess.run(["wtype", "-k", "Return"], check=True)
+    # Ctrl+Shift+V paste into the focused window, via the desktop backend's typing
+    # tool (wtype on Wayland, xdotool on X11, ydotool on GNOME/KDE).
+    if not desktop.paste_and_submit(cfg, submit=submit):
+        return "copied to clipboard (no typing tool for this desktop)"
     return "pasted into focused window" + (" + Enter" if submit else "")
 
 
-def to_clipboard(text: str) -> None:
-    """``wl-copy`` the text. The universal fallback (M1)."""
-    if not shutil.which("wl-copy"):
-        raise RuntimeError("wl-copy not found — install wl-clipboard (see: voxpane doctor)")
-    subprocess.run(["wl-copy"], input=text, text=True, check=True)
+def to_clipboard(text: str, cfg: dict[str, Any] | None = None) -> None:
+    """Copy ``text`` to the clipboard via the desktop backend (``wl-copy`` on Wayland,
+    ``xclip``/``xsel`` on X11). The universal delivery fallback."""
+    desktop.clipboard_copy(text, cfg)
