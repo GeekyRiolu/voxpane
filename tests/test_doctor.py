@@ -56,3 +56,46 @@ def test_main_returns_int():
     rc = doctor.main(_cfg(), printer=out.append)
     assert isinstance(rc, int)
     assert any("voxpane doctor" in line for line in out)
+
+
+# ------------------------------------------------------- backend awareness
+
+def test_backend_reported_and_marked_experimental():
+    cfg = _cfg()
+    cfg["desktop"]["backend"] = "sway"
+    desk = next(c for c in doctor.run_checks(cfg) if c.name == "desktop")
+    assert desk.ok and "sway" in desk.detail and "experimental" in desk.detail
+
+
+def test_x11_needs_xdotool_and_xclip_not_wayland_tools():
+    names = {n for n, _h, _s in doctor._desktop_binaries(_cfg(), "x11")}
+    assert "xdotool" in names and "xclip" in names
+    assert "wl-copy" not in names and "wtype" not in names
+
+
+def test_generic_wayland_uses_ydotool_and_has_no_focus_reader():
+    names = {n for n, _h, _s in doctor._desktop_binaries(_cfg(), "wayland")}
+    assert "ydotool" in names and "wl-copy" in names
+    assert "hyprctl" not in names and "swaymsg" not in names  # no focus CLI there
+
+
+def test_typing_tool_hard_only_in_focus_mode():
+    focus_cfg = _cfg()
+    focus_cfg["delivery"]["mode"] = "focus"
+    soft_by_name = {n: s for n, _h, s in doctor._desktop_binaries(focus_cfg, "hyprland")}
+    assert soft_by_name["wtype"] is False          # required for focus delivery
+    tmux_cfg = _cfg()  # default delivery mode is tmux
+    soft_by_name = {n: s for n, _h, s in doctor._desktop_binaries(tmux_cfg, "hyprland")}
+    assert soft_by_name["wtype"] is True           # advisory otherwise
+
+
+def test_install_hint_follows_the_package_manager(monkeypatch):
+    monkeypatch.setattr(doctor.shutil, "which",
+                        lambda name: "/usr/bin/apt" if name == "apt" else None)
+    assert doctor._install_hint("wl-copy") == "sudo apt install wl-clipboard"
+    assert doctor._install_hint("notify-send") == "sudo apt install libnotify-bin"
+
+
+def test_install_hint_is_neutral_without_a_known_manager(monkeypatch):
+    monkeypatch.setattr(doctor.shutil, "which", lambda name: None)
+    assert doctor._install_hint("wl-copy") == "install wl-clipboard"
