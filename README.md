@@ -95,7 +95,12 @@ for the full design and the reasoning behind each constraint.
 > push-to-talk **dictation**, **spoken summaries** (Piper → your speakers + toast), the
 > **wake word**, an always-on **listener** (Scheduled Task), and Claude Code **hooks**
 > (PowerShell). WASAPI mic, Win32 focus, PowerShell paste. Unvalidated (no Windows CI) —
-> see [Windows setup](docs/INSTALL.md#windows-experimental). macOS is next.
+> see [Windows setup](docs/INSTALL.md#windows-experimental).
+>
+> **macOS** *(experimental, Phase 3)*: same full loop — CoreAudio mic (`sounddevice`),
+> focus + paste via AppleScript, `pbcopy` clipboard, Piper → `afplay` for summaries,
+> Notification Center toasts, a **launchd** listener, and the wake word opening
+> Terminal.app. Unvalidated (no macOS CI) — see [macOS setup](docs/INSTALL.md#macos-experimental).
 
 ## Quick start
 

@@ -292,3 +292,55 @@ CI runs Windows**, so all of this is unvalidated — please
 
 The resident STT daemon uses loopback TCP on Windows (CPython has no AF_UNIX). There is
 no on-screen pet on Windows — voxpane runs headless.
+
+---
+
+## macOS (experimental)
+
+**Status:** the **full loop** runs on macOS — **dictation**, **spoken summaries** (Piper
+→ `afplay`), Notification Center toasts, the **wake word** (opens Terminal.app), an
+always-on **launchd** listener, and the `.sh` Claude Code hooks. CoreAudio mic via
+`sounddevice`; focus + paste via AppleScript; `pbcopy` clipboard; the STT daemon uses a
+Unix socket (macOS has AF_UNIX). **No macOS CI**, so this is unvalidated — please
+[open an issue](https://github.com/GeekyRiolu/voxpane/issues).
+
+1. **Homebrew deps** — `brew install python jq` (jq is used by the shell hooks). For a
+   local voice, `brew install piper-tts` (or grab a
+   [Piper release](https://github.com/rhasspy/piper/releases)) + a voice `.onnx`.
+
+2. **Install voxpane** with the macOS audio extra (`sounddevice`/CoreAudio):
+   ```bash
+   pip install "voxpane[macos,daemon,listen]"
+   ```
+
+3. **whisper.cpp** — `brew install whisper-cpp` (provides `whisper-cli`) + a model, e.g.
+   `ggml-large-v3-turbo-q5_0.bin`.
+
+4. **Config** — `~/Library/Application Support/voxpane/config.toml`:
+   ```toml
+   [whisper]
+   model = "/Users/you/models/ggml-large-v3-turbo-q5_0.bin"
+
+   [delivery]
+   mode = "focus"      # paste into the focused window ("clipboard" just copies)
+
+   [speak.bluetooth]
+   piper_model = "/Users/you/piper/en_US-lessac-medium.onnx"
+   ```
+
+5. **Grant permissions** — the first time voxpane reads the focused window or pastes,
+   macOS prompts for **Accessibility** (System Settings → Privacy & Security →
+   Accessibility) and **Microphone**. Approve your terminal / the `voxpane` process.
+
+6. **Check** — `voxpane doctor` → backend `macos`, `audio capture: sounddevice`,
+   `osascript` + `pbcopy`. Then `voxpane start` / speak / `voxpane stop`, or bind
+   `voxpane toggle` to a hotkey (e.g. via [Hammerspoon](https://www.hammerspoon.org/) or
+   Automator).
+
+7. **Hooks & always-on** — `voxpane install-hooks` (bash hooks work on macOS);
+   `voxpane install-listener` writes a launchd agent
+   (`~/Library/LaunchAgents/com.voxpane.listen.plist`) that starts the wake-word listener
+   at login. Set `wake_word` and say "voxpane …" to open Terminal.app with Claude.
+
+There is no on-screen pet on macOS (it needs a wlroots compositor) — voxpane runs
+headless.

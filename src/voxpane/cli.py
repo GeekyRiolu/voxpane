@@ -302,10 +302,53 @@ def _install_listener_windows() -> int:
     return 0
 
 
+def _install_listener_macos() -> int:
+    import shutil
+    import subprocess
+
+    exe = shutil.which("voxpane") or str(Path.home() / ".local" / "bin" / "voxpane")
+    label = "com.voxpane.listen"
+    plist_dir = Path.home() / "Library" / "LaunchAgents"
+    plist_dir.mkdir(parents=True, exist_ok=True)
+    plist_path = plist_dir / f"{label}.plist"
+    plist = (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" '
+        '"http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n'
+        '<plist version="1.0">\n<dict>\n'
+        f'  <key>Label</key><string>{label}</string>\n'
+        '  <key>ProgramArguments</key>\n  <array>\n'
+        f'    <string>{exe}</string>\n    <string>listen</string>\n    <string>--run</string>\n'
+        '  </array>\n'
+        '  <key>RunAtLoad</key><true/>\n'
+        '  <key>KeepAlive</key><true/>\n'
+        '</dict>\n</plist>\n'
+    )
+    plist_path.write_text(plist)
+    print(f"✓ wrote {plist_path}")
+
+    cfg_path, changed = _ensure_always_on()
+    print(f"✓ set always_on = true in {cfg_path}" if changed
+          else f"✓ always_on already enabled ({cfg_path})")
+
+    if shutil.which("launchctl"):
+        subprocess.run(["launchctl", "unload", str(plist_path)], capture_output=True)
+        loaded = subprocess.run(["launchctl", "load", str(plist_path)], capture_output=True)
+        if loaded.returncode == 0:
+            print(f"✓ loaded {label} (starts at login)")
+        else:
+            print(f"  ! load it with:  launchctl load {plist_path}")
+    print('  set wake_word in config.toml, then say "voxpane ..." from anywhere')
+    print(f"  remove later with:  launchctl unload {plist_path} && rm {plist_path}")
+    return 0
+
+
 def _cmd_install_listener() -> int:
     from . import osutil
     if osutil.IS_WINDOWS:
         return _install_listener_windows()
+    if osutil.IS_MACOS:
+        return _install_listener_macos()
 
     import shutil
     import subprocess

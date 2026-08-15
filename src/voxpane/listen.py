@@ -540,6 +540,8 @@ def _detect_terminal(cfg: dict[str, Any]) -> list[str] | None:
     configured = (cfg["listen"].get("terminal") or "").strip()
     if configured:
         return shlex.split(configured)  # full prefix, incl. any exec flag
+    if osutil.IS_MACOS:
+        return ["osascript"] if shutil.which("osascript") else None
     if osutil.IS_WINDOWS:
         return next(([t] for t in _WINDOWS_TERMINALS if shutil.which(t)), None)
     for term, prefix in _TERMINAL_EXEC.items():
@@ -550,7 +552,13 @@ def _detect_terminal(cfg: dict[str, Any]) -> list[str] | None:
 
 def _wake_argv(terminal: list[str], folder: str, command: str) -> list[str]:
     """Build the terminal launch argv: ``cd <folder> && <command>`` in a fresh window,
-    per-terminal. POSIX runs it under ``sh -lc``; Windows uses wt/pwsh/cmd syntax."""
+    per-OS. Linux runs it under ``sh -lc``; macOS drives Terminal.app via AppleScript;
+    Windows uses wt/pwsh/cmd syntax."""
+    if osutil.IS_MACOS:
+        shell = f'cd "{folder}" && {command}'
+        script = ('tell application "Terminal" to do script "'
+                  + shell.replace("\\", "\\\\").replace('"', '\\"') + '"')
+        return ["osascript", "-e", script]
     if not osutil.IS_WINDOWS:
         return [*terminal, "sh", "-lc", f"cd {shlex.quote(folder)} && {command}"]
     head = os.path.basename(terminal[0]).lower()
