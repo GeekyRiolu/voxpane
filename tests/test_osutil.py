@@ -7,6 +7,7 @@ mocking the environment — so CI proves the Windows wiring without a Windows bo
 from __future__ import annotations
 
 import sys
+from types import SimpleNamespace
 
 from voxpane import osutil, paths
 
@@ -70,3 +71,30 @@ def test_windows_runtime_dir_never_calls_getuid(monkeypatch):
     assert paths.runtime_dir().name == "runtime"  # resolves without raising
 
 # (the Windows speak-lock is covered in test_windows_speak.py with a fake msvcrt)
+
+
+# ------------------------------------------------------------- process helpers
+
+def test_pid_alive_windows_uses_tasklist(monkeypatch):
+    monkeypatch.setattr(osutil, "IS_WINDOWS", True)
+    monkeypatch.setattr(osutil.subprocess, "run",
+                        lambda cmd, **k: SimpleNamespace(stdout=" 4242 Console"))
+    assert osutil.pid_alive(4242) is True
+
+
+def test_terminate_windows_uses_taskkill(monkeypatch):
+    monkeypatch.setattr(osutil, "IS_WINDOWS", True)
+    seen = {}
+    monkeypatch.setattr(osutil.subprocess, "run",
+                        lambda cmd, **k: seen.update(cmd=cmd) or SimpleNamespace(returncode=0))
+    assert osutil.terminate(4242) is True
+    assert seen["cmd"][:2] == ["taskkill", "/F"] and "4242" in seen["cmd"]
+
+
+def test_terminate_posix_sends_sigterm(monkeypatch):
+    if osutil.IS_WINDOWS:
+        return
+    seen = {}
+    monkeypatch.setattr(osutil.os, "kill", lambda pid, sig: seen.update(pid=pid, sig=sig))
+    assert osutil.terminate(4242) is True
+    assert seen["pid"] == 4242 and seen["sig"] == osutil.signal.SIGTERM

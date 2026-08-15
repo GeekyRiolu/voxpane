@@ -31,7 +31,7 @@ from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
-from . import desktop, paths
+from . import desktop, osutil, paths
 
 FRAME_MS = 20
 RATE = 16000
@@ -92,13 +92,7 @@ def _read_pid(path: Path) -> int | None:
 
 
 def _alive(pid: int) -> bool:
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        return True
-    return True
+    return osutil.pid_alive(pid)
 
 
 def _unlink(path: Path) -> None:
@@ -285,10 +279,7 @@ def stop() -> None:
         targets.add(pid)
     for target in targets:
         if _alive(target):
-            try:
-                os.kill(target, signal.SIGTERM)
-            except ProcessLookupError:
-                pass
+            osutil.terminate(target)
     # Only remove the pid file if it still names the listener we signalled — a
     # freshly-spawned listener may have already claimed it (rapid restart), and
     # clobbering its pid file would make it invisible to is_listening().
@@ -301,7 +292,10 @@ def _spawn_listener() -> None:
     # venvs symlink the interpreter to the base python, so sys.executable can point
     # outside the venv (no voxpane/webrtcvad). sys.prefix keeps the venv packages.
     # Capture the child's stderr to a log so a silent early exit is diagnosable.
-    env_python = os.path.join(sys.prefix, "bin", "python")
+    if osutil.IS_WINDOWS:
+        env_python = os.path.join(sys.prefix, "Scripts", "python.exe")
+    else:
+        env_python = os.path.join(sys.prefix, "bin", "python")
     python = env_python if os.path.exists(env_python) else sys.executable
     try:
         paths.ensure(paths.state_dir())
@@ -313,7 +307,7 @@ def _spawn_listener() -> None:
         stdin=subprocess.DEVNULL,
         stdout=subprocess.DEVNULL,
         stderr=err,
-        start_new_session=True,  # outlive the hook process
+        **osutil.detached_kwargs(),  # outlive the hook process
     )
 
 
@@ -402,6 +396,9 @@ _TERMINAL_EXEC = {
     "xterm": ["xterm", "-e"],
 }
 
+# Windows terminals to try, best first: Windows Terminal, then PowerShell, then cmd.
+_WINDOWS_TERMINALS = ("wt", "pwsh", "powershell", "cmd")
+
 
 def _normalize(text: str) -> str:
     """Lowercase, drop punctuation, collapse whitespace — for phrase matching."""
@@ -487,10 +484,26 @@ def _detect_terminal(cfg: dict[str, Any]) -> list[str] | None:
     configured = (cfg["listen"].get("terminal") or "").strip()
     if configured:
         return shlex.split(configured)  # full prefix, incl. any exec flag
+    if osutil.IS_WINDOWS:
+        return next(([t] for t in _WINDOWS_TERMINALS if shutil.which(t)), None)
     for term, prefix in _TERMINAL_EXEC.items():
         if shutil.which(term):
             return prefix
     return None
+
+
+def _wake_argv(terminal: list[str], folder: str, command: str) -> list[str]:
+    """Build the terminal launch argv: ``cd <folder> && <command>`` in a fresh window,
+    per-terminal. POSIX runs it under ``sh -lc``; Windows uses wt/pwsh/cmd syntax."""
+    if not osutil.IS_WINDOWS:
+        return [*terminal, "sh", "-lc", f"cd {shlex.quote(folder)} && {command}"]
+    head = os.path.basename(terminal[0]).lower()
+    if head.startswith("wt"):  # Windows Terminal: -d sets the working directory
+        return [*terminal, "-d", folder, *shlex.split(command)]
+    if head.startswith("cmd"):
+        return [*terminal, "/c", f'cd /d "{folder}" && {command}']
+    safe = folder.replace("'", "''")  # pwsh / powershell
+    return [*terminal, "-NoProfile", "-Command", f"Set-Location -LiteralPath '{safe}'; {command}"]
 
 
 def _resolve_folder(request: str, base: str) -> str:
@@ -533,9 +546,9 @@ def _wake_open_session(request: str, cfg: dict[str, Any]) -> None:
     command = lc.get("wake_open_command", "claude --dangerously-skip-permissions --model opus")
     folder = _resolve_folder(request, lc.get("wake_base_dir", "~/Work"))
     subprocess.Popen(
-        [*terminal, "sh", "-lc", f"cd {shlex.quote(folder)} && {command}"],
+        _wake_argv(terminal, folder, command),
         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-        start_new_session=True,
+        **osutil.detached_kwargs(),
     )
 
 
@@ -632,7 +645,8 @@ def run(cfg: dict[str, Any] | None = None) -> int:
     paths.ensure(paths.runtime_dir())
     paths.listener_pid_file().write_text(str(os.getpid()))
     stop_requested = {"v": False}
-    signal.signal(signal.SIGTERM, lambda *_: stop_requested.__setitem__("v", True))
+    if not osutil.IS_WINDOWS:  # Windows can't usefully catch SIGTERM (taskkill is hard)
+        signal.signal(signal.SIGTERM, lambda *_: stop_requested.__setitem__("v", True))
     last_speak = 0.0
     last_check = 0.0
     active = True

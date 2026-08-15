@@ -10,6 +10,8 @@ same way.
 
 from __future__ import annotations
 
+import os
+import signal
 import subprocess
 import sys
 from typing import Any
@@ -31,3 +33,32 @@ def detached_kwargs() -> dict[str, Any]:
             flags |= getattr(subprocess, name, 0)
         return {"creationflags": flags}
     return {"start_new_session": True}
+
+
+def pid_alive(pid: int) -> bool:
+    """Whether a process is running. IMPORTANT: never TERMINATES it — ``os.kill(pid,
+    0)`` *kills* the target on Windows, so there we probe with ``tasklist`` instead."""
+    if IS_WINDOWS:
+        out = subprocess.run(["tasklist", "/FI", f"PID eq {pid}", "/NH"],
+                             capture_output=True, text=True)
+        return f" {pid} " in out.stdout or f"\t{pid}\t" in out.stdout
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def terminate(pid: int) -> bool:
+    """Stop a process — SIGTERM on POSIX, ``taskkill /F`` on Windows. Returns True if
+    the signal/kill was issued (False if the process was already gone)."""
+    if IS_WINDOWS:
+        return subprocess.run(["taskkill", "/F", "/PID", str(pid)],
+                              capture_output=True).returncode == 0
+    try:
+        os.kill(pid, signal.SIGTERM)
+        return True
+    except ProcessLookupError:
+        return False
