@@ -1,10 +1,12 @@
 """voxpaned — the resident STT daemon — milestone M5.
 
-Holds a ``faster-whisper`` model in memory behind a unix socket at
-``paths.socket_path()`` so per-utterance cost is transcription only. The CLI is a
-thin client (:func:`voxpane.transcriber.transcribe`); if the socket is absent it
-falls back to the M1 ``whisper-cli`` subprocess path, so the tool never
-hard-fails.
+Holds a ``faster-whisper`` model in memory behind a socket so per-utterance cost is
+transcription only. The CLI is a thin client (:func:`voxpane.transcriber.transcribe`);
+if the daemon is absent it falls back to the M1 ``whisper-cli`` subprocess path, so the
+tool never hard-fails.
+
+Transport: a unix socket at ``paths.socket_path()`` on POSIX; on Windows (no AF_UNIX in
+CPython) a loopback TCP socket whose port is written to ``paths.daemon_port_file()``.
 
 Protocol: one JSON request line in, one JSON response line out.
   -> {"wav": "/tmp/vp-1.wav", "language": "en", "initial_prompt": "..."}
@@ -22,7 +24,7 @@ import sys
 from collections.abc import Callable
 from typing import Any
 
-from . import config, paths
+from . import config, osutil, paths
 
 # transcribe_fn(wav, language, initial_prompt) -> text
 TranscribeFn = Callable[[str, "str | None", "str | None"], str]
@@ -97,26 +99,45 @@ def serve() -> int:
     print(f"voxpaned: loading {model_name} (int8, cpu)…", file=sys.stderr)
     model = WhisperModel(model_name, device="cpu", compute_type="int8")
 
-    paths.ensure(paths.runtime_dir())
-    sock_path = paths.socket_path()
-    try:
-        sock_path.unlink()
-    except FileNotFoundError:
-        pass
-
-    server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-    server.bind(str(sock_path))
-    server.listen(4)
-    print(f"voxpaned: listening on {sock_path}", file=sys.stderr)
-
+    server = _bind_server()
     try:
         _serve(server, _make_transcribe_fn(model, whisper_cfg))
     except KeyboardInterrupt:
         return 0
     finally:
         server.close()
+        _cleanup_endpoint()
+    return 0
+
+
+def _bind_server() -> socket.socket:
+    """Bind the serving socket: AF_UNIX at ``socket_path()`` on POSIX, or a loopback
+    TCP socket on Windows whose chosen port is written to ``daemon_port_file()``."""
+    paths.ensure(paths.runtime_dir())
+    if osutil.IS_WINDOWS:
+        server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        server.bind(("127.0.0.1", 0))  # ephemeral port — avoids clashes
+        server.listen(4)
+        port = server.getsockname()[1]
+        paths.daemon_port_file().write_text(str(port))
+        print(f"voxpaned: listening on 127.0.0.1:{port}", file=sys.stderr)
+        return server
+    sock_path = paths.socket_path()
+    try:
+        sock_path.unlink()
+    except FileNotFoundError:
+        pass
+    server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    server.bind(str(sock_path))
+    server.listen(4)
+    print(f"voxpaned: listening on {sock_path}", file=sys.stderr)
+    return server
+
+
+def _cleanup_endpoint() -> None:
+    for f in (paths.socket_path(), paths.daemon_port_file()):
         try:
-            sock_path.unlink()
+            f.unlink()
         except FileNotFoundError:
             pass
-    return 0

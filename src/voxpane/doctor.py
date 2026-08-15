@@ -150,7 +150,9 @@ def _desktop_binaries(cfg: dict[str, Any], be: str) -> list[tuple[str, str, bool
 
 def _stt(cfg: dict[str, Any]) -> Check:
     """STT is available if voxpaned is running OR whisper-cli + its model exist."""
-    if paths.socket_path().is_socket():
+    daemon_up = (paths.daemon_port_file().exists() if osutil.IS_WINDOWS
+                 else paths.socket_path().is_socket())
+    if daemon_up:
         return Check("speech-to-text", True, "voxpaned daemon (resident model)")
     binary = cfg["whisper"].get("binary", "whisper-cli")
     model = config_mod.model_path(cfg)

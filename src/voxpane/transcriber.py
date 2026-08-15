@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Any
 
 from . import config as config_mod
-from . import paths
+from . import osutil, paths
 
 _PROMPT_TOKEN_CAP = 224
 
@@ -66,13 +66,40 @@ def transcribe_file(wav: Path, cfg: dict[str, Any]) -> str:
     return result.stdout.strip()
 
 
+def _daemon_connect() -> socket.socket | None:
+    """Connect to voxpaned — AF_UNIX socket on POSIX, loopback TCP on Windows (read
+    the port from ``daemon_port_file()``). Returns a connected socket or None."""
+    if osutil.IS_WINDOWS:
+        port_file = paths.daemon_port_file()
+        if not port_file.exists():
+            return None
+        try:
+            port = int(port_file.read_text().strip())
+        except (OSError, ValueError):
+            return None
+        family, address = socket.AF_INET, ("127.0.0.1", port)
+    else:
+        # No AF_UNIX on Windows (CPython) — this branch is POSIX-only.
+        if not hasattr(socket, "AF_UNIX") or not paths.socket_path().exists():
+            return None
+        family, address = socket.AF_UNIX, str(paths.socket_path())
+
+    client = socket.socket(family, socket.SOCK_STREAM)
+    try:
+        client.settimeout(120)
+        client.connect(address)
+    except OSError:
+        client.close()
+        return None
+    return client
+
+
 def transcribe_via_daemon(wav: Path, cfg: dict[str, Any]) -> str | None:
     """Ask ``voxpaned`` to transcribe. Returns ``None`` if the daemon is
-    unavailable (socket absent, refused, timed out, or it reported an error) so
-    the caller can fall back to :func:`transcribe_file`."""
-    sock_path = paths.socket_path()
-    # No AF_UNIX on Windows (CPython) — always fall back to whisper-cli there.
-    if not hasattr(socket, "AF_UNIX") or not sock_path.exists():
+    unavailable (absent, refused, timed out, or it reported an error) so the caller
+    can fall back to :func:`transcribe_file`."""
+    client = _daemon_connect()
+    if client is None:
         return None
 
     request = {
@@ -81,9 +108,7 @@ def transcribe_via_daemon(wav: Path, cfg: dict[str, Any]) -> str | None:
         "initial_prompt": (cfg["whisper"].get("initial_prompt") or "").strip(),
     }
     try:
-        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
-            client.settimeout(120)
-            client.connect(str(sock_path))
+        with client:
             client.sendall((json.dumps(request) + "\n").encode("utf-8"))
             data = _recv_line(client)
     except OSError:

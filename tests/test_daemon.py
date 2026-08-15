@@ -5,7 +5,7 @@ from __future__ import annotations
 import socket
 import threading
 
-from voxpane import config, daemon, paths, transcriber
+from voxpane import config, daemon, osutil, paths, transcriber
 
 
 def test_handle_request_success():
@@ -53,3 +53,40 @@ def test_daemon_socket_roundtrip(tmp_path, monkeypatch):
     server.close()
 
     assert out == f"transcribed:{paths.record_pid_file()}:en"
+
+
+def test_bind_server_windows_binds_loopback_tcp(tmp_path, monkeypatch):
+    monkeypatch.setattr(osutil, "IS_WINDOWS", True)
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    server = daemon._bind_server()
+    try:
+        host, port = server.getsockname()
+        assert host == "127.0.0.1" and port > 0
+        assert int(paths.daemon_port_file().read_text()) == port
+    finally:
+        server.close()
+        daemon._cleanup_endpoint()
+    assert not paths.daemon_port_file().exists()  # cleaned up
+
+
+def test_daemon_tcp_roundtrip_on_windows(tmp_path, monkeypatch):
+    monkeypatch.setattr(osutil, "IS_WINDOWS", True)  # shared module → daemon + transcriber
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+
+    server = daemon._bind_server()  # loopback TCP + port file (no AF_UNIX on Windows)
+
+    def fake_fn(wav, language, initial_prompt):
+        return f"tcp:{wav}:{language}"
+
+    threading.Thread(target=daemon._serve, args=(server, fake_fn), daemon=True).start()
+    out = transcriber.transcribe_via_daemon(paths.record_pid_file(), config.defaults())
+    server.close()
+    daemon._cleanup_endpoint()
+
+    assert out == f"tcp:{paths.record_pid_file()}:en"
+
+
+def test_daemon_connect_windows_none_without_port_file(tmp_path, monkeypatch):
+    monkeypatch.setattr(osutil, "IS_WINDOWS", True)
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    assert transcriber._daemon_connect() is None  # no daemon.port → fall back

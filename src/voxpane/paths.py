@@ -87,6 +87,12 @@ def socket_path() -> Path:
     return runtime_dir() / "daemon.sock"
 
 
+def daemon_port_file() -> Path:
+    """Windows only: the loopback TCP port voxpaned is listening on (CPython has no
+    AF_UNIX there). The client reads this instead of checking for the socket file."""
+    return runtime_dir() / "daemon.port"
+
+
 def record_pid_file() -> Path:
     return runtime_dir() / "record.pid"
 
