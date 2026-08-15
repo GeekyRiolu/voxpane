@@ -10,7 +10,7 @@ finishes the turn, your Echo Dot reads out what it did.
 Speech in is fully local (Whisper). Speech out goes to a real Echo Dot.
 
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
-![Platform](https://img.shields.io/badge/platform-Linux%20%C2%B7%20Wayland%2FHyprland-informational)
+![Platform](https://img.shields.io/badge/platform-Linux-informational)
 ![Status](https://img.shields.io/badge/status-alpha-orange)
 ![STT](https://img.shields.io/badge/STT-100%25%20local-brightgreen)
 
@@ -78,8 +78,12 @@ for the full design and the reasoning behind each constraint.
 
 ## Requirements
 
-- **Arch Linux** (or derivative) on a **Wayland / Hyprland** session. The inbound
-  path uses `wtype` and `wl-copy`; X11 tools like `xdotool` do not work here.
+- **Any modern Linux** with PipeWire *or* PulseAudio audio. voxpane detects your
+  desktop and uses the right tools for window-focus, typing, and clipboard:
+  **Hyprland/Sway** (wtype + wl-copy), **X11** (xdotool + xclip), or **GNOME/KDE
+  Wayland** (ydotool; no focus gate). Only Hyprland is exercised by the author —
+  Sway/X11/GNOME/KDE are **experimental** ([details](docs/INSTALL.md#desktop-support)).
+  Run `voxpane doctor` to see the detected backend and what's missing.
 - A working **microphone** (your laptop's built-in mic — the Echo can't be an
   input device over Bluetooth).
 - **whisper.cpp** + a Whisper model (`large-v3-turbo`, ~550 MB).
@@ -160,10 +164,11 @@ session** (`SessionStart`/`SessionEnd` hooks, ref-counted across sessions), and:
 - **no feedback loop** — the mic is muted while the Dot speaks (plus a short
   guard), so it never transcribes its own voice;
 - **focus-gated** — it only listens while the Claude Code window is focused
-  (Hyprland; captured at session start), so switching to a browser or a call
-  silences the mic — it won't transcribe YouTube or someone else talking. Set
-  `[listen] focus_only = false` to disable, or `focus_match` to a terminal-class
-  regex.
+  (Hyprland/Sway/X11; captured at session start), so switching to a browser or a
+  call silences the mic — it won't transcribe YouTube or someone else talking. On
+  GNOME/KDE Wayland there's no focused-window API, so the gate relaxes (the wake
+  word still works). Set `[listen] focus_only = false` to disable, or `focus_match`
+  to a terminal-class regex.
 
 ```bash
 uv tool install --force 'voxpane[daemon,listen]'   # adds webrtcvad

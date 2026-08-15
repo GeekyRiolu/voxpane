@@ -41,13 +41,50 @@ If it's quiet or clipped: `wpctl set-volume @DEFAULT_AUDIO_SOURCE@ 0.9`.
 
 ## 3. System packages
 
+The core packages (audio, notifications, tmux, the whisper glue) are the same
+everywhere; the **focus / typing / clipboard** tools depend on your desktop — see
+[Desktop support](#desktop-support) just below.
+
+Arch (or a derivative):
+
 ```bash
 sudo pacman -S --needed pipewire pipewire-pulse pipewire-audio wireplumber \
-  bluez bluez-utils wl-clipboard wtype libnotify jq tmux uv sox
+  bluez bluez-utils libnotify jq tmux uv sox \
+  wl-clipboard wtype            # Hyprland/Sway; on X11 use xclip + xdotool instead
 ```
 
-`wtype` is the Wayland-native keystroke injector — `xdotool` will **not** work
-under Hyprland. `sox` pads audio with lead-in silence (see §6).
+On Debian/Ubuntu use `apt`, on Fedora `dnf` — the package names are nearly
+identical (`pipewire`, `wl-clipboard`, `wtype`, `libnotify-bin`/`libnotify`, …).
+`voxpane doctor` detects your package manager and prints the exact install command
+for anything missing. `sox` pads audio with lead-in silence (see §6).
+
+## Desktop support
+
+voxpane auto-detects your session (override with `[desktop] backend` in
+`config.toml`) and routes window-focus, typing, and clipboard to the right tools.
+**Audio, media-pause, notifications, tmux delivery, and spoken summaries work on
+every desktop** — only these three differ:
+
+| Desktop | Focus gate | Types via | Clipboard | Pixel pet | Status |
+|---|---|---|---|---|---|
+| **Hyprland** | `hyprctl` | `wtype` | `wl-copy` | ✓ | **tested** |
+| **Sway** | `swaymsg` | `wtype` | `wl-copy` | ✓ | experimental |
+| **X11** (XFCE, i3, …) | `xdotool` | `xdotool` | `xclip`/`xsel` | — | experimental |
+| **GNOME/KDE Wayland** | — (relaxed) | `ydotool`¹ | `wl-copy` | — | experimental |
+
+¹ `ydotool` needs its daemon (`ydotoold`) running and there's no focused-window API
+on plain Wayland, so typing is best-effort — the transcript always lands on the
+clipboard as a fallback (Ctrl+Shift+V to paste).
+
+- **Pixel pet** (`voxpane overlay`) uses the wlr-layer-shell protocol, so it only
+  appears on Hyprland/Sway. Elsewhere voxpane runs headless — voice and dictation
+  are unaffected.
+- **Keybinds**: `voxpane install-bindings` writes the SUPER ALT V bind on Hyprland
+  and Sway; on other desktops it prints the two shortcuts to add by hand in your
+  system keyboard settings.
+- Only **Hyprland** is exercised on the author's machine. Sway/X11/GNOME/KDE are
+  written to spec and unit-tested but ship **experimental** — please report what
+  works (or doesn't) via a GitHub issue.
 
 ## 4. whisper.cpp
 
