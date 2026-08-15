@@ -48,6 +48,21 @@ def _notify_windows(summary: str, body: str, expire_ms: int | None) -> None:
         return
 
 
+def _notify_macos(summary: str, body: str) -> None:
+    """macOS notification via ``osascript`` (Notification Center)."""
+    if not shutil.which("osascript"):
+        return
+    title = summary.replace('"', '\\"')
+    text = (body or summary).replace('"', '\\"')
+    try:
+        subprocess.run(
+            ["osascript", "-e", f'display notification "{text}" with title "{title}"'],
+            capture_output=True, timeout=5,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return
+
+
 def notify(
     summary: str,
     body: str = "",
@@ -64,6 +79,9 @@ def notify(
     """
     if osutil.IS_WINDOWS:
         _notify_windows(summary, body, expire_ms)
+        return replace_id
+    if osutil.IS_MACOS:
+        _notify_macos(summary, body)
         return replace_id
     if not shutil.which("notify-send"):
         return None

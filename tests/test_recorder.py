@@ -55,12 +55,12 @@ def test_start_falls_back_to_parecord_without_pw_record(runtime, monkeypatch):
     assert json.loads(paths.record_state_file().read_text())["tool"] == "parecord"
 
 
-def test_start_raises_when_no_recorder_installed(runtime, monkeypatch):
+def test_start_raises_without_any_capture_backend(runtime, monkeypatch):
+    # No PipeWire/PulseAudio subprocess AND no sounddevice -> a clear error.
     monkeypatch.setattr(recorder, "is_recording", lambda: False)
-    absent = {"pw-record", "parecord"}
-    monkeypatch.setattr(recorder.shutil, "which",
-                        lambda name: None if name in absent else f"/usr/bin/{name}")
-    with pytest.raises(RuntimeError, match="no recorder"):
+    monkeypatch.setattr(recorder, "_record_argv", lambda *a: None)
+    monkeypatch.setattr(importlib.util, "find_spec", lambda name: None)
+    with pytest.raises(RuntimeError, match="sounddevice not installed"):
         recorder.start(config.defaults())
 
 
@@ -137,7 +137,7 @@ def test_stop_returns_none_when_idle(runtime, monkeypatch):
     assert recorder.stop(timeout_s=0.1) is None
 
 
-# ------------------------------------------------------------------- windows
+# -------------------------------------------- sounddevice worker (macOS / Windows)
 
 def test_win_pid_alive_uses_tasklist_not_os_kill(monkeypatch):
     seen = {}
@@ -151,39 +151,28 @@ def test_win_pid_alive_uses_tasklist_not_os_kill(monkeypatch):
     assert seen["cmd"][0] == "tasklist"
 
 
-def test_start_windows_spawns_winrec_worker(monkeypatch, tmp_path):
-    monkeypatch.setattr(recorder.osutil, "IS_WINDOWS", True)
-    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))  # runtime dir isolation on Windows
+def test_start_uses_sd_worker_when_no_native_recorder(runtime, monkeypatch):
+    # macOS/Windows (or a Linux box without PipeWire): _record_argv finds nothing.
     monkeypatch.setattr(recorder, "is_recording", lambda: False)
+    monkeypatch.setattr(recorder, "_record_argv", lambda *a: None)
     monkeypatch.setattr(importlib.util, "find_spec", lambda name: object())  # sounddevice present
     monkeypatch.setattr(recorder.subprocess, "Popen", FakePopen)
 
     wav = recorder.start(config.defaults())
 
     cmd = FakePopen.last.cmd
-    assert "voxpane.winrec" in cmd and str(wav) in cmd
+    assert "voxpane.sdcapture" in cmd and str(wav) in cmd
     state = json.loads(paths.record_state_file().read_text())
-    assert state["tool"] == "winrec" and state["stop_file"].endswith("record.stop")
+    assert state["tool"] == "sdcapture" and state["stop_file"].endswith("record.stop")
 
 
-def test_start_windows_raises_without_sounddevice(monkeypatch, tmp_path):
-    monkeypatch.setattr(recorder.osutil, "IS_WINDOWS", True)
-    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
-    monkeypatch.setattr(recorder, "is_recording", lambda: False)
-    monkeypatch.setattr(importlib.util, "find_spec", lambda name: None)  # not installed
-    with pytest.raises(RuntimeError, match="sounddevice not installed"):
-        recorder.start(config.defaults())
-
-
-def test_stop_windows_signals_via_stop_file(monkeypatch, tmp_path):
-    monkeypatch.setattr(recorder.osutil, "IS_WINDOWS", True)
-    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+def test_stop_sd_worker_signals_via_stop_file(runtime, monkeypatch):
     paths.ensure(paths.runtime_dir())
-    wav = tmp_path / "vp.wav"
+    wav = runtime / "vp.wav"
     wav.write_bytes(b"RIFF____WAVE")
     stop_file = paths.runtime_dir() / "record.stop"
     paths.record_state_file().write_text(json.dumps(
-        {"wav": str(wav), "pid": 999_999, "tool": "winrec", "stop_file": str(stop_file)}))
+        {"wav": str(wav), "pid": 999_999, "tool": "sdcapture", "stop_file": str(stop_file)}))
 
     seen = {}
 

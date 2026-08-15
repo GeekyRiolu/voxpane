@@ -16,10 +16,14 @@ from voxpane import config, listen
 def test_open_mic_picks_backend_by_os(monkeypatch):
     monkeypatch.setattr(listen, "_SoundDeviceMic", lambda cfg: "SD")
     monkeypatch.setattr(listen, "_SubprocessMic", lambda cfg: "SUB")
+    monkeypatch.setattr(listen.osutil, "IS_MACOS", False)
     monkeypatch.setattr(listen.osutil, "IS_WINDOWS", True)
-    assert listen._open_mic(config.defaults()) == "SD"
+    assert listen._open_mic(config.defaults()) == "SD"          # Windows -> sounddevice
     monkeypatch.setattr(listen.osutil, "IS_WINDOWS", False)
-    assert listen._open_mic(config.defaults()) == "SUB"
+    monkeypatch.setattr(listen.osutil, "IS_MACOS", True)
+    assert listen._open_mic(config.defaults()) == "SD"          # macOS -> sounddevice
+    monkeypatch.setattr(listen.osutil, "IS_MACOS", False)
+    assert listen._open_mic(config.defaults()) == "SUB"         # Linux -> subprocess pipe
 
 
 def test_subprocess_mic_reads_fixed_frames(monkeypatch):

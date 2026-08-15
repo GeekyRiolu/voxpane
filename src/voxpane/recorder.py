@@ -6,9 +6,11 @@ Linux (PipeWire/PulseAudio): a ``pw-record``/``parecord`` subprocess. Hard const
   * Stop it with SIGINT, never SIGKILL — SIGKILL leaves the WAV header unfinalised.
   * Enforce ``audio.max_seconds`` via ``timeout --signal=INT`` for a clean auto-stop.
 
-Windows (WASAPI): there is no ``pw-record`` and ``os.kill`` terminates rather than
-signals, so capture runs in a detached ``voxpane.winrec`` worker (sounddevice) that
-finalises the WAV on a filesystem stop-file — see ``_start_windows``/``_stop_windows``.
+macOS / Windows (sounddevice): there is no ``pw-record`` (and on Windows ``os.kill``
+terminates rather than signals), so capture runs in a detached ``voxpane.sdcapture``
+worker that finalises the WAV on a filesystem stop-file — see ``_start_sd_worker`` /
+``_stop_sd_worker``. Selected by capability: used whenever ``_record_argv`` finds no
+PipeWire/PulseAudio tool.
 """
 
 from __future__ import annotations
@@ -75,7 +77,7 @@ def _wav_path() -> Path:
     return Path(tempfile.gettempdir()) / f"vp-{int(time.time())}.wav"
 
 
-def _win_stop_file() -> Path:
+def _sd_stop_file() -> Path:
     return paths.runtime_dir() / "record.stop"
 
 
@@ -123,18 +125,19 @@ def is_recording() -> bool:
     return _running_recorder() is not None
 
 
-def _start_windows(rate: int, max_seconds: int, source: str, wav: Path) -> Path:
-    """Spawn the detached sounddevice worker (Windows has no pw-record)."""
+def _start_sd_worker(rate: int, max_seconds: int, source: str, wav: Path) -> Path:
+    """Spawn the detached sounddevice capture worker (macOS/Windows have no pw-record)."""
     import importlib.util
 
     if importlib.util.find_spec("sounddevice") is None:
+        extra = "windows" if osutil.IS_WINDOWS else "macos"
         raise RuntimeError(
-            "sounddevice not installed — pip install voxpane[windows]; see: voxpane doctor"
+            f"sounddevice not installed — pip install voxpane[{extra}]; see: voxpane doctor"
         )
     paths.ensure(paths.runtime_dir())
-    stop_file = _win_stop_file()
+    stop_file = _sd_stop_file()
     stop_file.unlink(missing_ok=True)  # clear any stale sentinel
-    argv = [sys.executable, "-m", "voxpane.winrec",
+    argv = [sys.executable, "-m", "voxpane.sdcapture",
             str(wav), str(rate), str(max_seconds), str(stop_file)]
     if source and source != "default":
         argv.append(source)
@@ -145,7 +148,7 @@ def _start_windows(rate: int, max_seconds: int, source: str, wav: Path) -> Path:
         stderr=subprocess.DEVNULL,
         **osutil.detached_kwargs(),
     )
-    _write_state({"wav": str(wav), "pid": proc.pid, "tool": "winrec",
+    _write_state({"wav": str(wav), "pid": proc.pid, "tool": "sdcapture",
                   "stop_file": str(stop_file), "started_at": time.time()})
     return wav
 
@@ -166,15 +169,11 @@ def start(cfg: dict[str, Any]) -> Path:
     source = str(cfg["audio"].get("source", "default"))
     wav = _wav_path()
 
-    if osutil.IS_WINDOWS:
-        return _start_windows(rate, max_seconds, source, wav)
-
+    # PipeWire/PulseAudio subprocess if available (Linux); otherwise the sounddevice
+    # capture worker (macOS/Windows, or a Linux box without those tools).
     rec = _record_argv(rate, source, wav)
     if rec is None:
-        raise RuntimeError(
-            "no recorder found — install PipeWire (pw-record) or PulseAudio "
-            "(parecord); see: voxpane doctor"
-        )
+        return _start_sd_worker(rate, max_seconds, source, wav)
     tool = rec[0]
 
     # A hard ceiling on recording length; SIGINT (not KILL) so the WAV stays valid.
@@ -193,12 +192,12 @@ def start(cfg: dict[str, Any]) -> Path:
     return wav
 
 
-def _stop_windows(timeout_s: float) -> Path | None:
+def _stop_sd_worker(timeout_s: float) -> Path | None:
     """Signal the sounddevice worker via the stop-file and wait for it to finalise."""
     state = _read_state()
     if not state:
         return None
-    stop_file = Path(state.get("stop_file") or _win_stop_file())
+    stop_file = Path(state.get("stop_file") or _sd_stop_file())
     stop_file.write_text("stop")  # tell the worker to finalise the WAV and exit
     wav = Path(state["wav"]) if state.get("wav") else None
     deadline = time.time() + timeout_s
@@ -213,10 +212,11 @@ def _stop_windows(timeout_s: float) -> Path | None:
 
 def stop(timeout_s: float = 5.0) -> Path | None:
     """Stop the running recorder and return the finalised WAV path, or ``None`` if
-    nothing was recording. Linux SIGINTs the subprocess; Windows uses the stop-file."""
-    if osutil.IS_WINDOWS:
-        return _stop_windows(timeout_s)
+    nothing was recording. The sounddevice worker (macOS/Windows) uses the stop-file;
+    the PipeWire/PulseAudio subprocess is SIGINT'd."""
     state = _read_state()
+    if state and state.get("tool") == "sdcapture":
+        return _stop_sd_worker(timeout_s)
     running = _running_recorder()
     if not state and not running:
         return None

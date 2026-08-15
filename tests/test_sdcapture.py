@@ -1,4 +1,4 @@
-"""Tests for the Windows capture worker (voxpane.winrec).
+"""Tests for the sounddevice capture worker (voxpane.sdcapture — macOS/Windows).
 
 sounddevice isn't installed in this Linux test env, so we inject a fake module and
 assert the worker records blocks, writes a valid WAV header, and acks the stop-file.
@@ -10,7 +10,7 @@ import sys
 import types
 import wave
 
-from voxpane import winrec
+from voxpane import sdcapture
 
 
 def _fake_sounddevice(stop_file, stop_after):
@@ -41,7 +41,7 @@ def test_record_writes_valid_wav_and_acks_stop(tmp_path, monkeypatch):
     fake_sd, state = _fake_sounddevice(stop_file, stop_after=3)
     monkeypatch.setitem(sys.modules, "sounddevice", fake_sd)
 
-    winrec.record(str(wav), 16000, 0, str(stop_file))
+    sdcapture.record(str(wav), 16000, 0, str(stop_file))
 
     with wave.open(str(wav)) as wf:
         assert wf.getframerate() == 16000
@@ -61,9 +61,9 @@ def test_record_stops_at_max_seconds(tmp_path, monkeypatch):
 
     # deadline = first time() (0.0) + max_seconds(1) = 1.0; loop reads while time < 1.0.
     vals = [0.0, 0.5, 1.5]
-    monkeypatch.setattr(winrec.time, "time", lambda: vals.pop(0) if vals else 9.0)
+    monkeypatch.setattr(sdcapture.time, "time", lambda: vals.pop(0) if vals else 9.0)
 
-    winrec.record(str(wav), 16000, 1, str(stop_file))
+    sdcapture.record(str(wav), 16000, 1, str(stop_file))
     assert state["reads"] == 1  # one block before the deadline tripped
     with wave.open(str(wav)) as wf:
         assert wf.getnframes() > 0

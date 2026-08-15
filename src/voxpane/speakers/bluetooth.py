@@ -4,7 +4,8 @@ Pipeline: ``piper`` synthesises -> ``sox`` pads with ``lead_silence_ms`` of
 lead-in silence -> ``pw-play --target <sink>``. Always works (not Alexa's voice).
 On Windows there is no ``pw-play``/bluez, so playback streams to a WASAPI output via
 ``sounddevice`` (``_play_windows``) — set ``speak.bluetooth.sink`` to a device name,
-or leave it empty for the default output.
+or leave it empty for the default output. On macOS, playback uses the built-in
+``afplay`` to the default output (``_play_macos``).
 
 The padding is not optional: A2DP links idle out, and the first ~500–800 ms after
 a silent gap gets swallowed ("Done — three files" -> "ee files"). Autodetect the
@@ -58,6 +59,8 @@ class BluetoothSpeaker(Speaker):
         if osutil.IS_WINDOWS:  # plays to a WASAPI device — no bluez sink needed
             import importlib.util
             return importlib.util.find_spec("sounddevice") is not None
+        if osutil.IS_MACOS:  # plays via the built-in afplay
+            return shutil.which("afplay") is not None
         return self._sink() is not None
 
     def speak(self, text: str) -> None:
@@ -68,11 +71,12 @@ class BluetoothSpeaker(Speaker):
         if not model.is_file():
             raise SpeakerError(f"piper model missing: {model}")
 
-        if osutil.IS_WINDOWS:
+        if osutil.IS_WINDOWS or osutil.IS_MACOS:
+            play = self._play_windows if osutil.IS_WINDOWS else self._play_macos
             with tempfile.TemporaryDirectory() as td:
                 speech = Path(td) / "speech.wav"
                 self._synthesize(piper, model, text, speech)
-                self._play_windows(self._pad(speech, Path(td)))
+                play(self._pad(speech, Path(td)))
             return
 
         sink = self._sink()
@@ -174,3 +178,27 @@ class BluetoothSpeaker(Speaker):
                 paths.play_pid_file().unlink()
             except FileNotFoundError:
                 pass
+
+    def _play_macos(self, wav: Path) -> None:
+        """Play the WAV through the built-in ``afplay`` (default output device). Popen
+        (not run) so ``voxpane hush`` can SIGTERM the pid mid-playback."""
+        try:
+            proc = subprocess.Popen(["afplay", str(wav)],
+                                    stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+        except OSError as exc:
+            raise SpeakerError(f"afplay: {exc}") from exc
+        paths.ensure(paths.runtime_dir())
+        paths.play_pid_file().write_text(str(proc.pid))
+        try:
+            _, err = proc.communicate(timeout=30)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            raise SpeakerError("afplay timed out") from None
+        finally:
+            try:
+                paths.play_pid_file().unlink()
+            except FileNotFoundError:
+                pass
+        if proc.returncode not in (0, -signal.SIGTERM):  # -SIGTERM = a deliberate hush
+            detail = (err or b"").decode(errors="replace").strip() or proc.returncode
+            raise SpeakerError(f"afplay: {detail}")

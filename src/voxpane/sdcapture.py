@@ -1,14 +1,14 @@
-"""Windows push-to-talk capture worker.
+"""Push-to-talk capture worker (sounddevice) for macOS and Windows.
 
-``recorder.start`` spawns this detached on Windows (there is no ``pw-record`` there).
-It records 16 kHz mono s16 WAV via ``sounddevice`` (WASAPI) until a stop-file appears
-or ``max_seconds`` elapses, then finalises the WAV and exits. ``recorder.stop`` creates
-the stop-file. Filesystem sentinels replace the POSIX SIGINT-finalises-the-WAV contract,
-which does not port to Windows (``os.kill`` there terminates rather than signals).
+``recorder.start`` spawns this detached where there is no ``pw-record``/``parecord``
+(macOS = CoreAudio, Windows = WASAPI). It records 16 kHz mono s16 WAV via ``sounddevice``
+until a stop-file appears or ``max_seconds`` elapses, then finalises the WAV and exits;
+``recorder.stop`` creates the stop-file. Filesystem sentinels replace the POSIX
+SIGINT-finalises-the-WAV contract (which Windows can't do — ``os.kill`` terminates there).
 
 Frames are written incrementally and the WAV is closed cleanly on exit, so the header
-is always finalised. Run as: ``python -m voxpane.winrec <wav> <rate> <max_s> <stop_file>
-[device]``.
+is always finalised. Run as: ``python -m voxpane.sdcapture <wav> <rate> <max_s>
+<stop_file> [device]``.
 """
 
 from __future__ import annotations

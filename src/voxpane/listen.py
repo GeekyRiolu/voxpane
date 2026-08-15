@@ -405,7 +405,10 @@ class _SoundDeviceMic(_MicSource):
 
 
 def _open_mic(cfg: dict[str, Any]) -> _MicSource:
-    return _SoundDeviceMic(cfg) if osutil.IS_WINDOWS else _SubprocessMic(cfg)
+    # sounddevice on macOS/Windows (no pw-cat/parec); the subprocess pipe on Linux.
+    if osutil.IS_WINDOWS or osutil.IS_MACOS:
+        return _SoundDeviceMic(cfg)
+    return _SubprocessMic(cfg)
 
 
 def _utterance_rms(pcm: bytes) -> float:
