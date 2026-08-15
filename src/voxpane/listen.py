@@ -346,13 +346,65 @@ def _media_playing() -> bool:
     return "State: RUNNING" in sinks.stdout or "Corked: no" in inputs.stdout
 
 
-def _frames(proc: subprocess.Popen) -> Iterator[bytes]:
-    assert proc.stdout is not None
-    while True:
-        frame = proc.stdout.read(_BYTES_PER_FRAME)
-        if not frame or len(frame) < _BYTES_PER_FRAME:
-            break
-        yield frame
+class _MicSource:
+    """A stream of fixed-size (``_BYTES_PER_FRAME``) s16-mono frames from the mic,
+    with a clean ``close()``. POSIX pipes ``pw-cat``/``parec``; Windows reads a
+    ``sounddevice`` RawInputStream (there is no such capture subprocess there)."""
+
+    def frames(self) -> Iterator[bytes]:  # pragma: no cover - overridden
+        raise NotImplementedError
+
+    def close(self) -> None:
+        pass
+
+
+class _SubprocessMic(_MicSource):
+    def __init__(self, cfg: dict[str, Any]) -> None:
+        self._proc = subprocess.Popen(
+            _audio_command(cfg), stdout=subprocess.PIPE, stderr=subprocess.DEVNULL
+        )
+
+    def frames(self) -> Iterator[bytes]:
+        assert self._proc.stdout is not None
+        while True:
+            frame = self._proc.stdout.read(_BYTES_PER_FRAME)
+            if not frame or len(frame) < _BYTES_PER_FRAME:
+                break
+            yield frame
+
+    def close(self) -> None:
+        self._proc.terminate()
+
+
+class _SoundDeviceMic(_MicSource):
+    def __init__(self, cfg: dict[str, Any]) -> None:
+        import sounddevice as sd
+
+        source = str(cfg.get("audio", {}).get("source", "default"))
+        device = source if source and source != "default" else None
+        self._n = _BYTES_PER_FRAME // 2  # samples per frame (s16 = 2 bytes)
+        self._stream = sd.RawInputStream(samplerate=RATE, channels=1, dtype="int16",
+                                         device=device)
+        self._stream.start()
+
+    def frames(self) -> Iterator[bytes]:
+        while True:
+            data, _overflowed = self._stream.read(self._n)
+            frame = bytes(data)
+            if len(frame) < _BYTES_PER_FRAME:
+                break
+            yield frame
+
+    def close(self) -> None:
+        try:
+            self._stream.stop()
+            self._stream.close()
+        except Exception:
+            pass
+
+
+def _open_mic(cfg: dict[str, Any]) -> _MicSource:
+    return _SoundDeviceMic(cfg) if osutil.IS_WINDOWS else _SubprocessMic(cfg)
 
 
 def _utterance_rms(pcm: bytes) -> float:
@@ -651,7 +703,7 @@ def run(cfg: dict[str, Any] | None = None) -> int:
     last_check = 0.0
     active = True
     shown = ""
-    proc: subprocess.Popen | None = None
+    mic: _MicSource | None = None
 
     def _overlay(state: str) -> None:
         nonlocal shown
@@ -663,10 +715,8 @@ def run(cfg: dict[str, Any] | None = None) -> int:
         # Reconnect loop: if the mic stream ends (the device drops on suspend/
         # resume), reopen it rather than exiting — the listener survives sleep.
         while not stop_requested["v"]:
-            proc = subprocess.Popen(
-                _audio_command(cfg), stdout=subprocess.PIPE, stderr=subprocess.DEVNULL
-            )
-            for frame in _frames(proc):
+            mic = _open_mic(cfg)
+            for frame in mic.frames():
                 if stop_requested["v"]:
                     break
                 now = time.monotonic()
@@ -696,16 +746,16 @@ def run(cfg: dict[str, Any] | None = None) -> int:
                 # Rest calmly as "idle" (the pet sleeps); perk to "listening" only
                 # while actually capturing speech, so it isn't constantly twitching.
                 _overlay("listening" if endpointer.active or is_speech else "idle")
-            proc.terminate()
-            proc = None
+            mic.close()
+            mic = None
             if stop_requested["v"]:
                 break
             _overlay("idle")
             endpointer.reset()
             time.sleep(1.0)  # mic stream ended (suspend?) — pause, then reopen it
     finally:
-        if proc is not None:
-            proc.terminate()
+        if mic is not None:
+            mic.close()
         # Don't clobber a newer listener's pid file on a rapid restart: only clear
         # the file if it still names us.
         if _read_pid(paths.listener_pid_file()) == os.getpid():
