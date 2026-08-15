@@ -80,3 +80,10 @@ def test_raises_when_model_missing(tmp_path, monkeypatch):
     monkeypatch.setattr(transcriber.shutil, "which", lambda name: f"/usr/bin/{name}")
     with pytest.raises(RuntimeError, match="model missing"):
         transcriber.transcribe_file(tmp_path / "a.wav", cfg)
+
+
+def test_daemon_skipped_without_af_unix(monkeypatch, tmp_path):
+    # Windows CPython has no socket.AF_UNIX — the daemon path must bail to whisper-cli
+    # instead of raising AttributeError.
+    monkeypatch.delattr(transcriber.socket, "AF_UNIX", raising=False)
+    assert transcriber.transcribe_via_daemon(tmp_path / "x.wav", config.defaults()) is None

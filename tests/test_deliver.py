@@ -85,3 +85,12 @@ def test_focus_mode_falls_back_when_no_typer(monkeypatch):
     monkeypatch.setattr(desktop, "paste_and_submit", lambda cfg=None, *, submit=False: False)
     status = deliver.deliver("hello", _cfg("focus"))
     assert "clipboard" in status  # no typing tool -> stays on the clipboard
+
+
+def test_tmux_mode_without_tmux_falls_back_to_clipboard(monkeypatch):
+    # e.g. Windows: the default tmux mode has no tmux — degrade to the clipboard.
+    monkeypatch.setattr(deliver.shutil, "which", lambda name: None)
+    copied = {}
+    monkeypatch.setattr(deliver, "to_clipboard", lambda t, cfg=None: copied.setdefault("t", t))
+    status = deliver.deliver("hello", _cfg("tmux"))
+    assert copied["t"] == "hello" and "not installed" in status

@@ -53,8 +53,11 @@ def _tmux_pane_exists(target: str) -> bool:
 
 def _deliver_tmux(text: str, cfg: dict[str, Any], *, submit: bool) -> str:
     target = cfg["delivery"]["tmux_target"]
-    if not shutil.which("tmux") or not _tmux_pane_exists(target):
-        to_clipboard(text)
+    if not shutil.which("tmux"):  # e.g. Windows — set [delivery] mode = "focus"/"clipboard"
+        to_clipboard(text, cfg)
+        return "tmux not installed — copied to clipboard"
+    if not _tmux_pane_exists(target):
+        to_clipboard(text, cfg)
         return f"tmux pane {target} gone — copied to clipboard"
 
     # -l = literal (or "Enter"/"Space" become key names); -- ends option parsing.

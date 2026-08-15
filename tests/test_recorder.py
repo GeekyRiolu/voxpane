@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import importlib.util
 import json
+from types import SimpleNamespace
 
 import pytest
 
@@ -133,3 +135,65 @@ def test_stop_signals_the_recorder_named_in_state(runtime, monkeypatch):
 def test_stop_returns_none_when_idle(runtime, monkeypatch):
     monkeypatch.setattr(recorder, "_running_recorder", lambda: None)
     assert recorder.stop(timeout_s=0.1) is None
+
+
+# ------------------------------------------------------------------- windows
+
+def test_win_pid_alive_uses_tasklist_not_os_kill(monkeypatch):
+    seen = {}
+
+    def fake_run(cmd, **k):
+        seen["cmd"] = cmd
+        return SimpleNamespace(stdout=" 4242 Console")
+
+    monkeypatch.setattr(recorder.subprocess, "run", fake_run)
+    assert recorder._win_pid_alive(4242) is True
+    assert seen["cmd"][0] == "tasklist"
+
+
+def test_start_windows_spawns_winrec_worker(monkeypatch, tmp_path):
+    monkeypatch.setattr(recorder.osutil, "IS_WINDOWS", True)
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))  # runtime dir isolation on Windows
+    monkeypatch.setattr(recorder, "is_recording", lambda: False)
+    monkeypatch.setattr(importlib.util, "find_spec", lambda name: object())  # sounddevice present
+    monkeypatch.setattr(recorder.subprocess, "Popen", FakePopen)
+
+    wav = recorder.start(config.defaults())
+
+    cmd = FakePopen.last.cmd
+    assert "voxpane.winrec" in cmd and str(wav) in cmd
+    state = json.loads(paths.record_state_file().read_text())
+    assert state["tool"] == "winrec" and state["stop_file"].endswith("record.stop")
+
+
+def test_start_windows_raises_without_sounddevice(monkeypatch, tmp_path):
+    monkeypatch.setattr(recorder.osutil, "IS_WINDOWS", True)
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    monkeypatch.setattr(recorder, "is_recording", lambda: False)
+    monkeypatch.setattr(importlib.util, "find_spec", lambda name: None)  # not installed
+    with pytest.raises(RuntimeError, match="sounddevice not installed"):
+        recorder.start(config.defaults())
+
+
+def test_stop_windows_signals_via_stop_file(monkeypatch, tmp_path):
+    monkeypatch.setattr(recorder.osutil, "IS_WINDOWS", True)
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    paths.ensure(paths.runtime_dir())
+    wav = tmp_path / "vp.wav"
+    wav.write_bytes(b"RIFF____WAVE")
+    stop_file = paths.runtime_dir() / "record.stop"
+    paths.record_state_file().write_text(json.dumps(
+        {"wav": str(wav), "pid": 999_999, "tool": "winrec", "stop_file": str(stop_file)}))
+
+    seen = {}
+
+    def fake_alive(pid):  # the sentinel must be written by the time we poll liveness
+        seen["stop_written"] = stop_file.exists()
+        return False
+
+    monkeypatch.setattr(recorder, "_pid_alive", fake_alive)
+    result = recorder.stop(timeout_s=0.3)
+
+    assert result == wav
+    assert seen["stop_written"] is True
+    assert not paths.record_state_file().exists()  # state cleared

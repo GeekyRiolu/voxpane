@@ -21,6 +21,7 @@ classifiers = [
     "Intended Audience :: Developers",
     "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",
     "Operating System :: POSIX :: Linux",
+    "Operating System :: Microsoft :: Windows",
     "Programming Language :: Python :: 3 :: Only",
     "Topic :: Multimedia :: Sound/Audio :: Speech",
     "Topic :: Utilities",
@@ -31,6 +32,7 @@ dependencies = []
 [project.optional-dependencies]
 daemon = ["faster-whisper>=1.0"]        # M5: resident STT model
 listen = ["webrtcvad-wheels>=2.0"]      # hands-free VAD listen mode
+windows = ["sounddevice>=0.4; sys_platform == 'win32'"]  # WASAPI mic capture (Phase 2)
 dev = ["pytest>=8", "pytest-cov", "ruff>=0.6"]
 
 [project.scripts]

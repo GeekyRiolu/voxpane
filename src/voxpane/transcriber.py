@@ -71,7 +71,8 @@ def transcribe_via_daemon(wav: Path, cfg: dict[str, Any]) -> str | None:
     unavailable (socket absent, refused, timed out, or it reported an error) so
     the caller can fall back to :func:`transcribe_file`."""
     sock_path = paths.socket_path()
-    if not sock_path.exists():
+    # No AF_UNIX on Windows (CPython) — always fall back to whisper-cli there.
+    if not hasattr(socket, "AF_UNIX") or not sock_path.exists():
         return None
 
     request = {

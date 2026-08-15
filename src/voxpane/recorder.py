@@ -1,12 +1,14 @@
-"""Audio capture via PipeWire — milestone M1.
+"""Audio capture — milestone M1.
 
-Records from the configured source to ``/tmp/vp-<ts>.wav`` at 16 kHz mono s16.
+Records from the configured source to a temp ``vp-<ts>.wav`` at 16 kHz mono s16.
 
-Hard constraints (see docs/plans/voxpane-plan.md):
-  * Stop ``pw-record`` with SIGINT, never SIGKILL — SIGKILL leaves the WAV header
-    unfinalised and the file unreadable.
-  * Enforce ``audio.max_seconds`` so a forgotten recording cannot fill the disk;
-    we wrap the recorder in ``timeout --signal=INT`` for a clean auto-stop.
+Linux (PipeWire/PulseAudio): a ``pw-record``/``parecord`` subprocess. Hard constraints:
+  * Stop it with SIGINT, never SIGKILL — SIGKILL leaves the WAV header unfinalised.
+  * Enforce ``audio.max_seconds`` via ``timeout --signal=INT`` for a clean auto-stop.
+
+Windows (WASAPI): there is no ``pw-record`` and ``os.kill`` terminates rather than
+signals, so capture runs in a detached ``voxpane.winrec`` worker (sounddevice) that
+finalises the WAV on a filesystem stop-file — see ``_start_windows``/``_stop_windows``.
 """
 
 from __future__ import annotations
@@ -16,11 +18,13 @@ import os
 import shutil
 import signal
 import subprocess
+import sys
+import tempfile
 import time
 from pathlib import Path
 from typing import Any
 
-from . import paths
+from . import osutil, paths
 
 
 def _read_state() -> dict[str, Any] | None:
@@ -47,7 +51,16 @@ def _clear_state() -> None:
             pass
 
 
+def _win_pid_alive(pid: int) -> bool:
+    out = subprocess.run(["tasklist", "/FI", f"PID eq {pid}", "/NH"],
+                         capture_output=True, text=True)
+    return f" {pid} " in out.stdout or f"\t{pid}\t" in out.stdout
+
+
 def _pid_alive(pid: int) -> bool:
+    if osutil.IS_WINDOWS:
+        # os.kill(pid, 0) TERMINATES the process on Windows — must not use it here.
+        return _win_pid_alive(pid)
     try:
         os.kill(pid, 0)
     except ProcessLookupError:
@@ -55,6 +68,15 @@ def _pid_alive(pid: int) -> bool:
     except PermissionError:
         return True
     return True
+
+
+def _wav_path() -> Path:
+    """A fresh temp WAV path — ``%TEMP%`` on Windows, ``/tmp`` on Linux."""
+    return Path(tempfile.gettempdir()) / f"vp-{int(time.time())}.wav"
+
+
+def _win_stop_file() -> Path:
+    return paths.runtime_dir() / "record.stop"
 
 
 # WAV-file recorders we know how to drive, in preference order: PipeWire first,
@@ -101,6 +123,33 @@ def is_recording() -> bool:
     return _running_recorder() is not None
 
 
+def _start_windows(rate: int, max_seconds: int, source: str, wav: Path) -> Path:
+    """Spawn the detached sounddevice worker (Windows has no pw-record)."""
+    import importlib.util
+
+    if importlib.util.find_spec("sounddevice") is None:
+        raise RuntimeError(
+            "sounddevice not installed — pip install voxpane[windows]; see: voxpane doctor"
+        )
+    paths.ensure(paths.runtime_dir())
+    stop_file = _win_stop_file()
+    stop_file.unlink(missing_ok=True)  # clear any stale sentinel
+    argv = [sys.executable, "-m", "voxpane.winrec",
+            str(wav), str(rate), str(max_seconds), str(stop_file)]
+    if source and source != "default":
+        argv.append(source)
+    proc = subprocess.Popen(
+        argv,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        **osutil.detached_kwargs(),
+    )
+    _write_state({"wav": str(wav), "pid": proc.pid, "tool": "winrec",
+                  "stop_file": str(stop_file), "started_at": time.time()})
+    return wav
+
+
 def start(cfg: dict[str, Any]) -> Path:
     """Begin recording in the background and return the target WAV path.
 
@@ -115,7 +164,10 @@ def start(cfg: dict[str, Any]) -> Path:
     rate = int(cfg["audio"]["rate"])
     max_seconds = int(cfg["audio"]["max_seconds"])
     source = str(cfg["audio"].get("source", "default"))
-    wav = Path(f"/tmp/vp-{int(time.time())}.wav")
+    wav = _wav_path()
+
+    if osutil.IS_WINDOWS:
+        return _start_windows(rate, max_seconds, source, wav)
 
     rec = _record_argv(rate, source, wav)
     if rec is None:
@@ -141,9 +193,29 @@ def start(cfg: dict[str, Any]) -> Path:
     return wav
 
 
+def _stop_windows(timeout_s: float) -> Path | None:
+    """Signal the sounddevice worker via the stop-file and wait for it to finalise."""
+    state = _read_state()
+    if not state:
+        return None
+    stop_file = Path(state.get("stop_file") or _win_stop_file())
+    stop_file.write_text("stop")  # tell the worker to finalise the WAV and exit
+    wav = Path(state["wav"]) if state.get("wav") else None
+    deadline = time.time() + timeout_s
+    while time.time() < deadline:
+        if not stop_file.exists() or not _pid_alive(int(state["pid"])):
+            break  # worker acked (deleted the sentinel) or exited
+        time.sleep(0.05)
+    stop_file.unlink(missing_ok=True)
+    _clear_state()
+    return wav
+
+
 def stop(timeout_s: float = 5.0) -> Path | None:
-    """SIGINT the running recorder and return the finalised WAV path, or ``None``
-    if nothing was recording."""
+    """Stop the running recorder and return the finalised WAV path, or ``None`` if
+    nothing was recording. Linux SIGINTs the subprocess; Windows uses the stop-file."""
+    if osutil.IS_WINDOWS:
+        return _stop_windows(timeout_s)
     state = _read_state()
     running = _running_recorder()
     if not state and not running:
