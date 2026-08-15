@@ -12,9 +12,40 @@ from __future__ import annotations
 import shutil
 import subprocess
 
+from . import osutil
+
 # A stable id lets recording/transcribing/preview toasts replace one another
 # instead of stacking up.
 RECORDING_ID = 42_100
+
+
+def _notify_windows(summary: str, body: str, expire_ms: int | None) -> None:
+    """Fire-and-forget Windows notification via a WinForms balloon tip (built in —
+    no extra dependency). Cannot replace an earlier toast, so replace_id is ignored."""
+    pwsh = shutil.which("pwsh") or shutil.which("powershell")
+    if not pwsh:
+        return
+    timeout = int(expire_ms) if expire_ms else 4000
+    title = summary.replace("'", "''")
+    text = (body or summary).replace("'", "''")
+    script = (
+        "Add-Type -AssemblyName System.Windows.Forms;"
+        "Add-Type -AssemblyName System.Drawing;"
+        "$n=New-Object System.Windows.Forms.NotifyIcon;"
+        "$n.Icon=[System.Drawing.SystemIcons]::Information;"
+        "$n.Visible=$true;"
+        f"$n.ShowBalloonTip({timeout},'{title}','{text}',"
+        "[System.Windows.Forms.ToolTipIcon]::Info);"
+        f"Start-Sleep -Milliseconds {timeout};$n.Dispose()"
+    )
+    try:
+        subprocess.Popen(
+            [pwsh, "-NoProfile", "-WindowStyle", "Hidden", "-Command", script],
+            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            **osutil.detached_kwargs(),
+        )
+    except OSError:
+        return
 
 
 def notify(
@@ -31,6 +62,9 @@ def notify(
 
     Swallows every error: a broken notifier must not take down a voice turn.
     """
+    if osutil.IS_WINDOWS:
+        _notify_windows(summary, body, expire_ms)
+        return replace_id
     if not shutil.which("notify-send"):
         return None
 

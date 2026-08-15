@@ -2,6 +2,9 @@
 
 Pipeline: ``piper`` synthesises -> ``sox`` pads with ``lead_silence_ms`` of
 lead-in silence -> ``pw-play --target <sink>``. Always works (not Alexa's voice).
+On Windows there is no ``pw-play``/bluez, so playback streams to a WASAPI output via
+``sounddevice`` (``_play_windows``) — set ``speak.bluetooth.sink`` to a device name,
+or leave it empty for the default output.
 
 The padding is not optional: A2DP links idle out, and the first ~500–800 ms after
 a silent gap gets swallowed ("Done — three files" -> "ee files"). Autodetect the
@@ -10,13 +13,14 @@ a silent gap gets swallowed ("Done — three files" -> "ee files"). Autodetect t
 
 from __future__ import annotations
 
+import os
 import shutil
 import signal
 import subprocess
 import tempfile
 from pathlib import Path
 
-from .. import paths
+from .. import osutil, paths
 from .base import Speaker, SpeakerError
 
 
@@ -49,7 +53,12 @@ class BluetoothSpeaker(Speaker):
         return None
 
     def available(self) -> bool:
-        return _piper_bin() is not None and self._sink() is not None
+        if _piper_bin() is None:
+            return False
+        if osutil.IS_WINDOWS:  # plays to a WASAPI device — no bluez sink needed
+            import importlib.util
+            return importlib.util.find_spec("sounddevice") is not None
+        return self._sink() is not None
 
     def speak(self, text: str) -> None:
         piper = _piper_bin()
@@ -58,6 +67,14 @@ class BluetoothSpeaker(Speaker):
         model = Path(self._conf().get("piper_model", "")).expanduser()
         if not model.is_file():
             raise SpeakerError(f"piper model missing: {model}")
+
+        if osutil.IS_WINDOWS:
+            with tempfile.TemporaryDirectory() as td:
+                speech = Path(td) / "speech.wav"
+                self._synthesize(piper, model, text, speech)
+                self._play_windows(self._pad(speech, Path(td)))
+            return
+
         sink = self._sink()
         if not sink:
             raise SpeakerError("no bluez sink")
@@ -127,3 +144,33 @@ class BluetoothSpeaker(Speaker):
         if proc.returncode not in (0, -signal.SIGTERM):
             detail = (err or b"").decode(errors="replace").strip() or proc.returncode
             raise SpeakerError(f"pw-play: {detail}")
+
+    def _play_windows(self, wav: Path) -> None:
+        """Stream the WAV to a WASAPI output via sounddevice (no numpy). Uses
+        ``speak.bluetooth.sink`` as the device if set, else the default output. Records
+        our own pid so ``voxpane hush`` can taskkill this process mid-utterance."""
+        import wave
+
+        import sounddevice as sd
+
+        device = self._conf().get("sink") or None
+        paths.ensure(paths.runtime_dir())
+        paths.play_pid_file().write_text(str(os.getpid()))
+        try:
+            with wave.open(str(wav), "rb") as wf:
+                sr, ch, sw = wf.getframerate(), wf.getnchannels(), wf.getsampwidth()
+                dtype = {1: "int8", 2: "int16", 4: "int32"}.get(sw, "int16")
+                with sd.RawOutputStream(samplerate=sr, channels=ch, dtype=dtype,
+                                        device=device) as stream:
+                    while True:
+                        data = wf.readframes(4096)
+                        if not data:
+                            break
+                        stream.write(data)
+        except Exception as exc:
+            raise SpeakerError(f"sounddevice playback: {exc}") from exc
+        finally:
+            try:
+                paths.play_pid_file().unlink()
+            except FileNotFoundError:
+                pass

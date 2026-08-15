@@ -9,8 +9,9 @@ from __future__ import annotations
 
 import os
 import signal
+import subprocess
 
-from . import paths
+from . import osutil, paths
 
 
 def hush() -> bool:
@@ -22,11 +23,16 @@ def hush() -> bool:
 
     stopped = False
     if pid is not None:
-        try:
-            os.kill(pid, signal.SIGTERM)
-            stopped = True
-        except ProcessLookupError:
-            pass
+        if osutil.IS_WINDOWS:
+            # os.kill semantics differ on Windows; taskkill the player process.
+            result = subprocess.run(["taskkill", "/F", "/PID", str(pid)], capture_output=True)
+            stopped = result.returncode == 0
+        else:
+            try:
+                os.kill(pid, signal.SIGTERM)
+                stopped = True
+            except ProcessLookupError:
+                pass
 
     for marker in (paths.play_pid_file(), paths.speaking_marker()):
         try:

@@ -38,26 +38,45 @@ def get_backend(name: str, cfg: dict[str, Any]) -> Speaker:
         raise ValueError(f"unknown speaker backend: {name}") from None
 
 
+def _lock_acquire(handle) -> None:
+    if osutil.IS_WINDOWS:
+        import msvcrt
+        handle.write(" ")  # msvcrt.locking needs a byte range to lock
+        handle.flush()
+        handle.seek(0)
+        try:
+            msvcrt.locking(handle.fileno(), msvcrt.LK_LOCK, 1)
+        except OSError:
+            pass  # best-effort: proceed even if we couldn't take the lock
+    else:
+        fcntl.flock(handle, fcntl.LOCK_EX)
+
+
+def _lock_release(handle) -> None:
+    try:
+        if osutil.IS_WINDOWS:
+            import msvcrt
+            handle.seek(0)
+            msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+        else:
+            fcntl.flock(handle, fcntl.LOCK_UN)
+    except OSError:
+        pass
+
+
 @contextlib.contextmanager
 def _speak_lock():
-    """Serialise utterances across concurrent sessions (best-effort file lock).
-
-    On Windows there is no ``fcntl``; the lock degrades to a no-op for now (a
-    portable ``msvcrt`` lock lands with the Windows spoken-output work)."""
-    if osutil.IS_WINDOWS:
-        yield
-        return
+    """Serialise utterances across concurrent sessions (best-effort file lock):
+    ``fcntl.flock`` on POSIX, ``msvcrt.locking`` on Windows."""
     lock_path = paths.speak_lock_file()
     paths.ensure(lock_path.parent)
     handle = open(lock_path, "w")  # noqa: SIM115 - held for the context's duration
     try:
-        fcntl.flock(handle, fcntl.LOCK_EX)
+        _lock_acquire(handle)
         yield
     finally:
-        try:
-            fcntl.flock(handle, fcntl.LOCK_UN)
-        finally:
-            handle.close()
+        _lock_release(handle)
+        handle.close()
 
 
 def speak_with_fallback(text: str, cfg: dict[str, Any]) -> str:

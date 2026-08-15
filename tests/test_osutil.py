@@ -69,10 +69,4 @@ def test_windows_runtime_dir_never_calls_getuid(monkeypatch):
     monkeypatch.setattr(paths.os, "getuid", boom, raising=False)
     assert paths.runtime_dir().name == "runtime"  # resolves without raising
 
-
-def test_speak_lock_is_noop_on_windows(monkeypatch):
-    from voxpane import speakers
-
-    monkeypatch.setattr(speakers.osutil, "IS_WINDOWS", True)
-    with speakers._speak_lock():  # must not touch fcntl or the filesystem
-        pass
+# (the Windows speak-lock is covered in test_windows_speak.py with a fake msvcrt)
